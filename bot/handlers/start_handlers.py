@@ -2,7 +2,7 @@ from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from typing import Callable
-from keyboards.menu import menu
+from bot.keyboards.menu import menu
 
 router = Router()
 

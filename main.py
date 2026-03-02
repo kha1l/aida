@@ -5,13 +5,13 @@ from config import Config, load_config
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.redis import RedisStorage
 from services.rabbitmq import rabbit_listener
-from middlewares.mdw_logging import LoggingMiddleware
-from middlewares.mdw_database import UserDBMiddleware, DBSessionMiddleware
-from middlewares.mdw_locale import I18nMiddleware
+from bot.middlewares.mdw_logging import LoggingMiddleware
+from bot.middlewares.mdw_database import UserDBMiddleware, DBSessionMiddleware
+from bot.middlewares.mdw_locale import I18nMiddleware
 from logger import setup_logging
 from database.engine import session_maker
 from services.cache import RedisCache
-from handlers import start_handlers
+from bot.handlers import start_handlers
 
 
 setup_logging("aida")

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from database.requests.user_data import UserData
 from loguru import logger
 from aiogram.fsm.context import FSMContext
-from keyboards.utils import new_account
+from bot.keyboards.info import new_account
 
 
 class DBSessionMiddleware(BaseMiddleware):
