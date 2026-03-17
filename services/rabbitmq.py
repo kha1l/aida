@@ -5,6 +5,7 @@ from loguru import logger
 
 
 async def rabbit_listener(bot: Bot, rabbit_url: str, queue_name: str):
+    """Слушает RabbitMQ и отправляет сообщения в Telegram."""
     connection = await aio_pika.connect_robust(rabbit_url)
     channel = await connection.channel()
 
@@ -16,6 +17,7 @@ async def rabbit_listener(bot: Bot, rabbit_url: str, queue_name: str):
         async for message in queue_iter:
             async with message.process():
                 try:
+                    # Формат сообщения: {"chat_id": ..., "text": ..., "topic_id": ...}
                     payload = json.loads(message.body.decode())
 
                     chat_id = payload["chat_id"]

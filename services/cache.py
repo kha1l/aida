@@ -4,6 +4,7 @@ from config import Config, load_config
 class RedisCache:
 
     def __init__(self, db: int):
+        # Клиент Redis для хранения FSM/кеша
         self.cfg: Config = load_config()
         self.db = db
         self.redis = Redis(
@@ -14,4 +15,5 @@ class RedisCache:
         )
 
     def get_redis(self):
+        # Возвращает готовый redis-клиент
         return self.redis

@@ -11,6 +11,7 @@ class LoggingMiddleware(BaseMiddleware):
         data: Dict[str, Any],
     ) -> Any:
 
+        # Логируем тип апдейта и контекст (чат, пользователь, сообщение)
         log = logger
 
         try:
@@ -40,7 +41,7 @@ class LoggingMiddleware(BaseMiddleware):
                     user_id=user_id,
                     callback_data=event.callback_query.data,
                 )
-                log.info("callback")
+                # Skip logging callbacks to reduce noise
 
             else:
                 log = log.bind(update_type=update_type)

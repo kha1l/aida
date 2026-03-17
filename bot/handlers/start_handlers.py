@@ -1,17 +1,24 @@
+from typing import Callable, Optional, Dict, Any
+
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.types import Message
-from typing import Callable
-from bot.keyboards.menu import menu
+from aiogram_dialog import DialogManager, StartMode
+
+from bot.dialogs.states import MenuSG
 
 router = Router()
 
 @router.message(CommandStart())
-async def start_(message: Message, _: Callable[[str], str]) -> None:
-    await message.answer(
-        _(f'👋 Привет, {message.from_user.full_name}! \n\n'
-        f'Я - Aida. Помогаю удаленно управлять рестораном или сетью ресторанов '
-        f'Dodo Brands и принимать правильные управленческие решения.'),
-        reply_markup=menu(_),
-        parse_mode="HTML"
+async def start_(
+    message: Message,
+    dialog_manager: DialogManager,
+    _: Callable[[str], str] = lambda s: s,
+    ctx: Optional[Dict[str, Any]] = None,
+) -> None:
+    # Запускаем главное меню, сбрасывая стек диалогов
+    await dialog_manager.start(
+        MenuSG.main,
+        mode=StartMode.RESET_STACK,
+        data={"ctx": ctx or {}},
     )

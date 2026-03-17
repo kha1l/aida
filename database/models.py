@@ -9,7 +9,9 @@ from sqlalchemy import (
     ForeignKey,
     TIMESTAMP,
     PrimaryKeyConstraint,
+    UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -229,3 +231,23 @@ class Settings(Base):
     chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     user = relationship("User", back_populates="settings")
+
+
+# -------------------
+# Orders
+# -------------------
+
+class Orders(Base):
+    """Подписки на отчёты/уведомления по чатам и аккаунтам."""
+    __tablename__ = "orders"
+    __table_args__ = (
+        UniqueConstraint("post", "account_id", "chat_id", name="uq_order_id_account_id"),
+        {"schema": "aida"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    post: Mapped[str] = mapped_column(String(100))
+    uuids: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    account_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("special.accounts.id"))
+    params: Mapped[str | None] = mapped_column(String(200))
