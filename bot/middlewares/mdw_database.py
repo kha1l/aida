@@ -11,6 +11,7 @@ from bot.keyboards.info import new_account
 class DBSessionMiddleware(BaseMiddleware):
     """Создаёт AsyncSession и кладёт его в data для всех хендлеров."""
     def __init__(self, session_maker: async_sessionmaker[AsyncSession]):
+        """Сохраняет фабрику сессий для последующего создания AsyncSession."""
         self.session_maker = session_maker
 
     async def __call__(
@@ -19,6 +20,7 @@ class DBSessionMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
+        """Открывает сессию БД на время обработки одного события."""
         async with self.session_maker() as session:
             data["session"] = session
             return await handler(event, data)
@@ -32,6 +34,7 @@ class UserDBMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any]
     ) -> Any:
+        """Заполняет контекст пользователя или показывает онбординг."""
 
         session: AsyncSession = data["session"]
         state: FSMContext = data.get("state")

@@ -1,8 +1,10 @@
 import asyncio
+import contextlib
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from config import Config, load_config
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.base import DefaultKeyBuilder
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram_dialog import setup_dialogs
 from services.rabbitmq import rabbit_listener
@@ -19,7 +21,9 @@ from bot.dialogs import menu_dialog
 
 setup_logging("aida")  # Настройка логирования приложения
 
+
 async def main() -> None:
+    """Запускает бота, middleware, диалоги и фоновые задачи."""
 
     cfg: Config = load_config()  # Читаем конфигурацию из переменных окружения
 
@@ -32,11 +36,11 @@ async def main() -> None:
     # Хранилище FSM в Redis (сейчас не используется, но готово к включению)
     storage = RedisStorage(
         redis=RedisCache(db=0).get_redis(),
+        key_builder=DefaultKeyBuilder(with_destiny=True),
         state_ttl=3600,
         data_ttl=3600
     )
-    # dp = Dispatcher(storage=storage)
-    dp = Dispatcher()
+    dp = Dispatcher(storage=storage)
 
     # Глобальные middleware (логирование, БД, локализация, загрузка пользователя)
     dp.update.middleware(LoggingMiddleware())
@@ -44,21 +48,32 @@ async def main() -> None:
     dp.update.middleware(I18nMiddleware())
     dp.update.middleware(UserDBMiddleware())
 
-    # asyncio.create_task(
-    #     rabbit_listener(
-    #         bot=bot,
-    #         rabbit_url=cfg.rabbit.url,
-    #         queue_name=cfg.rabbit.queue,
-    #     )
-    # )
+    rabbit_task = asyncio.create_task(
+        rabbit_listener(
+            bot=bot,
+            rabbit_url=cfg.rabbit.url,
+            queue_name=cfg.rabbit.queue,
+        ),
+        name="rabbit_listener",
+    )
     # Роутеры
     dp.include_router(error_handlers.router)   # обработчики ошибок
     dp.include_router(start_handlers.router)   # /start и базовые команды
     dp.include_router(menu_dialog)             # диалоги меню
     # Инициализация aiogram-dialog
     setup_dialogs(dp)
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot)
+    finally:
+        rabbit_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await rabbit_task
+        with contextlib.suppress(Exception):
+            await storage.close()
+        with contextlib.suppress(Exception):
+            await bot.session.close()
 
 
 if __name__ == "__main__":

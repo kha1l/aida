@@ -16,6 +16,7 @@ class I18nMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
+        """Подкладывает переводчик и настройки языка в middleware data."""
         session: AsyncSession = data["session"]
 
         # Пользователь Telegram (если нет — используем ru по умолчанию)

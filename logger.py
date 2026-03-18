@@ -6,10 +6,12 @@ def setup_logging(
     service_name: str = "aida",
     log_level: str = "INFO",
 ):
+    """Настраивает вывод логов в stdout и файл сервиса."""
 
     logger.remove()
 
     def filter_logs(record):
+        """Пропускает только записи текущего сервиса."""
         return record["extra"].get("service") == "aida"
 
     logger.add(

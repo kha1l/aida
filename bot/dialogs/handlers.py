@@ -17,26 +17,32 @@ class MenuHandlers:
     """Коллекция обработчиков для диалогов меню."""
     @staticmethod
     def _translator(manager: DialogManager):
+        """Безопасно достаёт переводчик из middleware data."""
         # Берём функцию перевода из middleware (если нет — fallback)
         value = (
             manager.middleware_data.get("i18n_gettext")
             or manager.middleware_data.get("_")
         )
         return value if callable(value) else (lambda s: s)
+
     @staticmethod
     async def set_type_notice(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Переключает контекст диалога на уведомления."""
         manager.dialog_data["type"] = "notice"
 
     @staticmethod
     async def set_type_reports(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Переключает контекст диалога на отчёты."""
         manager.dialog_data["type"] = "reports"
 
     @staticmethod
     async def set_type_stop(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Переключает контекст диалога на меню стопов."""
         manager.dialog_data["type"] = "stop"
 
     @staticmethod
     async def set_type_stock(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Подготавливает диалог к выбору складских остатков."""
         # Переходим в режим "складские остатки" и сбрасываем выбор категорий
         manager.dialog_data["type"] = "stock"
         manager.dialog_data["post"] = "stock"
@@ -48,6 +54,7 @@ class MenuHandlers:
 
     @staticmethod
     async def on_exit(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Закрывает меню и отправляет сообщение с подсказкой."""
         _ = MenuHandlers._translator(manager)
         try:
             # Пытаемся удалить текущее сообщение с меню
@@ -60,7 +67,9 @@ class MenuHandlers:
 
     @staticmethod
     def make_post_handler(post: str, state: MenuSG) -> Callable[[CallbackQuery, Button, DialogManager], Awaitable[None]]:
+        """Строит обработчик выбора типа отчёта."""
         async def _handler(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+            """Сохраняет выбранный post и открывает нужное окно."""
             # Если тип отчёта изменился — сбрасываем выбор заведений
             if manager.dialog_data.get("post") != post:
                 try:
@@ -75,7 +84,9 @@ class MenuHandlers:
 
     @staticmethod
     def make_stop_post_handler(post: str) -> Callable[[CallbackQuery, Button, DialogManager], Awaitable[None]]:
+        """Строит обработчик выбора типа уведомления о стопах."""
         async def _handler(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+            """Сохраняет выбранный stop-post и открывает список заведений."""
             if manager.dialog_data.get("post") != post:
                 try:
                     ctx_state = manager.current_context()
@@ -89,6 +100,7 @@ class MenuHandlers:
 
     @staticmethod
     async def on_stock_commit(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Сохраняет выбранные категории и ведёт к выбору заведений."""
         # Сохраняем выбранные категории складских остатков
         widget = cast(Multiselect, manager.find("stocks"))
         selected = widget.get_checked()
@@ -98,6 +110,7 @@ class MenuHandlers:
 
     @staticmethod
     async def on_units_commit(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Применяет выбор заведений и синхронизирует подписки с БД."""
         # Применяем выбор заведений для отчёта/уведомления
         widget = cast(Multiselect, manager.find("units"))
         selected = set(widget.get_checked())
@@ -121,6 +134,7 @@ class MenuHandlers:
         units_meta = manager.dialog_data.get("units_meta", {})
 
         def _group_by_account(uuids: set[str]) -> dict[int | None, set[str]]:
+            """Группирует выбранные заведения по account_id."""
             # Группировка заведений по account_id
             grouped: dict[int | None, set[str]] = {}
             for uuid in uuids:
@@ -211,6 +225,7 @@ class MenuHandlers:
 
     @staticmethod
     async def on_units_subscribe_all(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Выбирает все заведения и сразу применяет подписку."""
         try:
             ctx_state = manager.current_context()
             units_meta = manager.dialog_data.get("units_meta", {})
@@ -222,6 +237,7 @@ class MenuHandlers:
 
     @staticmethod
     async def on_units_unsubscribe_all(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Снимает подписку со всех заведений и возвращает назад."""
         try:
             ctx_state = manager.current_context()
             ctx_state.widget_data["units"] = []
@@ -241,6 +257,7 @@ class MenuHandlers:
 
     @staticmethod
     async def on_units_back(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Возвращает пользователя в предыдущее меню выбора."""
         type_ = manager.dialog_data.get("type")
         if type_ == "stock":
             await manager.switch_to(MenuSG.stocks)
@@ -253,6 +270,7 @@ class MenuHandlers:
 
     @staticmethod
     async def on_operation_action(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
+        """Показывает сообщение о запуске обновления данных."""
         _ = MenuHandlers._translator(manager)
         await callback.message.answer(_(MenuTexts.UPDATE_WAIT))
 
@@ -263,6 +281,7 @@ class MenuHandlers:
         manager: DialogManager,
         item_id: str,
     ) -> None:
+        """Сохраняет выбранный язык для текущего чата."""
         session = manager.middleware_data.get("session")
         event_chat = manager.middleware_data.get("event_chat")
         if not session or not event_chat:

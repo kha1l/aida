@@ -23,6 +23,7 @@ class ContextValidator:
     """Безопасная валидация контекста из внешних источников."""
     @staticmethod
     def validate(data: dict | None) -> ContextDTO:
+        """Преобразует словарь контекста в валидный ContextDTO."""
         if not data:
             return ContextDTO()
         try:

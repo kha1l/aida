@@ -2,6 +2,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 def new_account(_) -> InlineKeyboardMarkup:
+    """Возвращает клавиатуру с ссылками для онбординга пользователя."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [

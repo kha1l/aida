@@ -9,6 +9,7 @@ from bot.dialogs.states import MenuSG
 
 router = Router()
 
+
 @router.message(CommandStart())
 async def start_(
     message: Message,
@@ -16,6 +17,7 @@ async def start_(
     _: Callable[[str], str] = lambda s: s,
     ctx: Optional[Dict[str, Any]] = None,
 ) -> None:
+    """Открывает главное меню и сбрасывает стек диалогов."""
     # Запускаем главное меню, сбрасывая стек диалогов
     await dialog_manager.start(
         MenuSG.main,

@@ -3,6 +3,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 def menu(_: Callable[[str], str]) -> InlineKeyboardMarkup:
+    """Строит старую inline-клавиатуру главного меню."""
 
     inline_keyboard = [
         [

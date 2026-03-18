@@ -12,6 +12,7 @@ class MenuWindows:
     """Окна меню для aiogram_dialog."""
     @staticmethod
     def main() -> Window:
+        """Возвращает окно главного меню."""
         return Window(
             Format("{main_greeting}"),
             Column(
@@ -27,6 +28,7 @@ class MenuWindows:
 
     @staticmethod
     def settings() -> Window:
+        """Возвращает окно настроек приложения."""
         return Window(
             Format("{title_settings}"),
             Column(
@@ -49,6 +51,7 @@ class MenuWindows:
 
     @staticmethod
     def operation() -> Window:
+        """Возвращает окно оперативных действий."""
         return Window(
             Format("{title_operation}"),
             Column(
@@ -63,6 +66,7 @@ class MenuWindows:
 
     @staticmethod
     def notice() -> Window:
+        """Возвращает окно подписок на уведомления."""
         return Window(
             Format("{title_subscription}"),
             Column(
@@ -79,6 +83,7 @@ class MenuWindows:
 
     @staticmethod
     def reports() -> Window:
+        """Возвращает окно подписок на отчёты."""
         return Window(
             Format("{title_subscription}"),
             Column(
@@ -95,6 +100,7 @@ class MenuWindows:
 
     @staticmethod
     def stops() -> Window:
+        """Возвращает окно выбора типов стопов."""
         return Window(
             Format("{title_stops}"),
             Column(
@@ -110,6 +116,7 @@ class MenuWindows:
 
     @staticmethod
     def stocks() -> Window:
+        """Возвращает окно выбора категорий складских остатков."""
         return Window(
             Format("{title_stocks}"),
             Column(
@@ -131,6 +138,7 @@ class MenuWindows:
 
     @staticmethod
     def units() -> Window:
+        """Возвращает окно выбора заведений для подписки."""
         return Window(
             Format("{title_units}"),
             Group(
@@ -159,6 +167,7 @@ class MenuWindows:
     @staticmethod
     @staticmethod
     def language() -> Window:
+        """Возвращает окно выбора языка интерфейса."""
         return Window(
             Format("{title_language}"),
             Column(

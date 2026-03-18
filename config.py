@@ -1,35 +1,47 @@
 from dataclasses import dataclass
 from environs import Env
 
+
 @dataclass
 class Bot:
+    """Настройки Telegram-бота."""
     token: str
+
 
 @dataclass
 class Database:
+    """Параметры подключения к PostgreSQL."""
     name: str
     user: str
     password: str
     host: str
 
+
 @dataclass
 class Redis:
+    """Параметры подключения к Redis."""
     host: str
     port: int
 
+
 @dataclass
 class Rabbit:
+    """Параметры подключения к RabbitMQ."""
     url: str
     queue: str
 
+
 @dataclass
 class Config:
+    """Корневая конфигурация приложения."""
     bot: Bot
     dbase: Database
     redis: Redis
     rabbit: Rabbit
 
+
 def load_config(path: str | None = None) -> Config:
+    """Собирает конфигурацию приложения из переменных окружения."""
     env = Env()
     env.read_env(path)
     return Config(

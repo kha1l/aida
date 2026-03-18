@@ -3,13 +3,16 @@ from aiogram import BaseMiddleware
 from aiogram.types import Update
 from loguru import logger
 
+
 class LoggingMiddleware(BaseMiddleware):
+    """Логирует входящие обновления и ошибки обработки."""
     async def __call__(
         self,
         handler: Callable[[Update, Dict[str, Any]], Awaitable[Any]],
         event: Update,
         data: Dict[str, Any],
     ) -> Any:
+        """Оборачивает обработку update логированием контекста."""
 
         # Логируем тип апдейта и контекст (чат, пользователь, сообщение)
         log = logger

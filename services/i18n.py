@@ -74,16 +74,19 @@ FALLBACK_TRANSLATIONS: dict[str, dict[str, str]] = {
 class DictTranslations(NullTranslations):
     """Мини-реализация gettext на базе словаря."""
     def __init__(self, mapping: dict[str, str]):
+        """Сохраняет словарь fallback-переводов."""
         super().__init__()
         self._mapping = mapping
 
     def gettext(self, message: str) -> str:  # type: ignore[override]
+        """Возвращает перевод из словаря или исходную строку."""
         return self._mapping.get(message, message)
 
 LOCALIZATIONS_DIR = 'services/localizations'
 
 
 def _normalize_language(language: str) -> str:
+    """Нормализует язык до короткого кода вроде ru/en."""
     # Приводим язык к виду "ru"/"en" без региональных суффиксов
     lang = (language or "ru").strip().lower()
     if "-" in lang:
@@ -94,12 +97,7 @@ def _normalize_language(language: str) -> str:
 
 
 def setup_i18n(language: str = 'ru') -> GNUTranslations | NullTranslations:
-    """
-    Функция для получения функции перевода. Подробнее нужно читать про локализацию с gettext и i18n.
-
-    :param language: Двух символьное обозначение нужного языка.
-    :return: Функция для перевода текста.
-    """
+    """Возвращает объект переводов для выбранного языка."""
     lang = _normalize_language(language)
     try:
         locales = translation(

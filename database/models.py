@@ -21,6 +21,7 @@ from sqlalchemy.orm import (
 
 
 class Base(DeclarativeBase):
+    """Базовый класс для всех SQLAlchemy-моделей."""
     pass
 
 
@@ -29,6 +30,7 @@ class Base(DeclarativeBase):
 # -------------------
 
 class Franchisee(Base):
+    """Франчайзи из схемы special."""
     __tablename__ = "franchisee"
     __table_args__ = {"schema": "special"}
 
@@ -43,6 +45,7 @@ class Franchisee(Base):
 # -------------------
 
 class Unit(Base):
+    """Заведение, доступное для подписок и уведомлений."""
     __tablename__ = "units"
     __table_args__ = {"schema": "special"}
 
@@ -64,6 +67,7 @@ class Unit(Base):
 # -------------------
 
 class User(Base):
+    """Пользователь платформы с привязкой к Telegram."""
     __tablename__ = "users"
     __table_args__ = {"schema": "special"}
 
@@ -89,6 +93,7 @@ class User(Base):
 # -------------------
 
 class Account(Base):
+    """Аккаунт пользователя во внешней системе."""
     __tablename__ = "accounts"
     __table_args__ = {"schema": "special"}
 
@@ -115,6 +120,7 @@ class Account(Base):
 # -------------------
 
 class UserAccount(Base):
+    """Связь многие-ко-многим между пользователями и аккаунтами."""
     __tablename__ = "user_account"
     __table_args__ = {"schema": "special"}
 
@@ -138,6 +144,7 @@ class UserAccount(Base):
 # -------------------
 
 class Application(Base):
+    """OAuth-приложение для доступа к внешним сервисам."""
     __tablename__ = "applications"
     __table_args__ = {"schema": "special"}
 
@@ -161,6 +168,7 @@ class Application(Base):
 # -------------------
 
 class Token(Base):
+    """Токены доступа, связанные с аккаунтом и приложением."""
     __tablename__ = "tokens"
     __table_args__ = {"schema": "special"}
 
@@ -190,6 +198,7 @@ class Token(Base):
 # -------------------
 
 class Subscribe(Base):
+    """Подписка токена на конкретное заведение."""
     __tablename__ = "subscribes"
     __table_args__ = (
         PrimaryKeyConstraint("uuid", "token_id"),
@@ -219,6 +228,7 @@ class Subscribe(Base):
 # -------------------
 
 class Settings(Base):
+    """Пользовательские настройки, включая язык для чата."""
     __tablename__ = "settings"
     __table_args__ = {"schema": "special"}
 

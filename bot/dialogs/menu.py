@@ -7,6 +7,7 @@ class MenuDialog:
     """Сборка всех окон меню в один Dialog."""
     @staticmethod
     def build() -> Dialog:
+        """Создаёт корневой Dialog со всеми окнами меню."""
         return Dialog(
             MenuWindows.main(),
             MenuWindows.settings(),

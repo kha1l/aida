@@ -9,6 +9,7 @@ class DialogContext:
     """Вспомогательные методы для доступа к контексту диалога."""
     @staticmethod
     def get_dialog_value(manager: DialogManager, key: str, default: Any) -> Any:
+        """Читает значение из dialog_data и инициализирует его при отсутствии."""
         # Гарантируем наличие значения в dialog_data
         value = manager.dialog_data.get(key, default)
         manager.dialog_data[key] = value
@@ -16,6 +17,7 @@ class DialogContext:
 
     @staticmethod
     async def load_ctx(manager: DialogManager) -> ContextDTO:
+        """Загружает и валидирует контекст пользователя из доступных источников."""
         # Пробуем получить контекст из FSM, dialog_data или start_data
         state = manager.middleware_data.get("state")
         if state:
@@ -33,6 +35,7 @@ class DialogContext:
 
     @staticmethod
     async def get_units_by_id(manager: DialogManager) -> dict[str, str]:
+        """Возвращает кешированный словарь заведений по UUID."""
         # Словарь uuid -> имя заведения (кешируется в dialog_data)
         units_by_id = manager.dialog_data.get("units_by_id")
         if units_by_id:

@@ -12,6 +12,7 @@ class MenuGetters:
     """Геттеры данных для окон меню (aiogram_dialog)."""
     @staticmethod
     def _translator(dialog_manager: DialogManager):
+        """Безопасно достаёт функцию перевода из middleware."""
         # Безопасно получаем функцию перевода из middleware
         value = (
             dialog_manager.middleware_data.get("i18n_gettext")
@@ -21,6 +22,7 @@ class MenuGetters:
 
     @staticmethod
     def _texts(dialog_manager: DialogManager) -> dict:
+        """Собирает локализованные подписи для меню."""
         # Все текстовые константы для окна
         _ = MenuGetters._translator(dialog_manager)
         return {
@@ -65,6 +67,7 @@ class MenuGetters:
 
     @staticmethod
     async def main_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
+        """Возвращает данные для главного окна меню."""
         # Приветствие + кнопки главного меню
         event = dialog_manager.event
         user = getattr(event, "from_user", None)
@@ -78,6 +81,7 @@ class MenuGetters:
 
     @staticmethod
     async def units_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
+        """Готовит список заведений и выбранные подписки."""
         # Список заведений с учетом подписок из БД
         ctx = await DialogContext.load_ctx(dialog_manager)
         units = [unit.model_dump() for unit in ctx.units]
@@ -117,6 +121,7 @@ class MenuGetters:
 
     @staticmethod
     async def stocks_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
+        """Готовит список категорий складских остатков."""
         # Категории складских остатков + предвыбор из БД
         _ = MenuGetters._translator(dialog_manager)
         session = dialog_manager.middleware_data.get("session")
@@ -149,10 +154,12 @@ class MenuGetters:
 
     @staticmethod
     async def texts_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
+        """Возвращает общий набор локализованных текстов."""
         return MenuGetters._texts(dialog_manager)
 
     @staticmethod
     async def language_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
+        """Возвращает список доступных языков интерфейса."""
         texts = MenuGetters._texts(dialog_manager)
         return {
             "languages": [
