@@ -16,6 +16,7 @@ from database.engine import session_maker
 from services.cache import RedisCache
 from bot.handlers import start_handlers
 from bot.handlers import error_handlers
+from bot.handlers import report_actions
 from bot.dialogs import menu_dialog
 
 
@@ -59,13 +60,14 @@ async def main() -> None:
     # Роутеры
     dp.include_router(error_handlers.router)   # обработчики ошибок
     dp.include_router(start_handlers.router)   # /start и базовые команды
+    dp.include_router(report_actions.router)   # inline-действия по отчетам
     dp.include_router(menu_dialog)             # диалоги меню
     # Инициализация aiogram-dialog
     setup_dialogs(dp)
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, config=cfg)
     finally:
         rabbit_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):

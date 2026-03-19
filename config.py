@@ -32,12 +32,24 @@ class Rabbit:
 
 
 @dataclass
+class Dagster:
+    """Параметры запуска Dagster job через GraphQL."""
+    graphql_url: str | None
+    repository_location_name: str | None
+    repository_name: str
+    auth_header_name: str | None
+    auth_header_value: str | None
+    request_timeout_seconds: int
+
+
+@dataclass
 class Config:
     """Корневая конфигурация приложения."""
     bot: Bot
     dbase: Database
     redis: Redis
     rabbit: Rabbit
+    dagster: Dagster
 
 
 def load_config(path: str | None = None) -> Config:
@@ -59,5 +71,13 @@ def load_config(path: str | None = None) -> Config:
         rabbit=Rabbit(
             url=env.str("RABBIT_URL"),
             queue=env.str("RABBIT_QUEUE", "aida"),
+        ),
+        dagster=Dagster(
+            graphql_url=env.str("DAGSTER_GRAPHQL_URL", "").strip() or None,
+            repository_location_name=env.str("DAGSTER_REPOSITORY_LOCATION", "").strip() or None,
+            repository_name=env.str("DAGSTER_REPOSITORY_NAME", "__repository__"),
+            auth_header_name=env.str("DAGSTER_AUTH_HEADER_NAME", "").strip() or None,
+            auth_header_value=env.str("DAGSTER_AUTH_HEADER_VALUE", "").strip() or None,
+            request_timeout_seconds=env.int("DAGSTER_REQUEST_TIMEOUT_SECONDS", 15),
         ),
     )
