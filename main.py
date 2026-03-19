@@ -1,3 +1,5 @@
+"""Точка входа Telegram-бота Aida3."""
+
 import asyncio
 import contextlib
 from aiogram.client.default import DefaultBotProperties
@@ -49,6 +51,7 @@ async def main() -> None:
     dp.update.middleware(I18nMiddleware())
     dp.update.middleware(UserDBMiddleware())
 
+    # Listener RabbitMQ живет рядом с polling и мягко останавливается в finally.
     rabbit_task = asyncio.create_task(
         rabbit_listener(
             bot=bot,
@@ -69,6 +72,7 @@ async def main() -> None:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot, config=cfg)
     finally:
+        # При остановке сначала гасим фоновые задачи, затем закрываем внешние ресурсы.
         rabbit_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await rabbit_task

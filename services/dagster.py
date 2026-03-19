@@ -1,3 +1,5 @@
+"""Клиент для запуска Dagster jobs из Telegram-бота через GraphQL."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -120,6 +122,7 @@ class DagsterClient:
         candidates: list[str] = []
         if self.repository_location_name:
             candidates.append(self.repository_location_name)
+        # На локальной разработке имя location может плавать, поэтому пробуем несколько вариантов.
         for candidate in DEFAULT_REPOSITORY_LOCATION_CANDIDATES:
             if candidate not in candidates:
                 candidates.append(candidate)
@@ -133,6 +136,7 @@ class DagsterClient:
         op_config: dict[str, Any],
         tags: dict[str, str] | None = None,
     ) -> DagsterRun:
+        # Dagster ждет config в формате runConfigData -> ops -> <op_name> -> config.
         execution_params: dict[str, Any] = {
             "selector": {
                 "repositoryLocationName": repository_location_name,

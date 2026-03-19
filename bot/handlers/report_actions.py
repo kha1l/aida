@@ -1,3 +1,5 @@
+"""Обработчики inline-действий для запуска отчетов и скрытия сообщений."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,9 +11,11 @@ from aiogram.types import CallbackQuery
 from loguru import logger
 
 from bot.keyboards.report_actions import (
+    DrinkThresholdCallback,
     HIDE_REPORT_CALLBACK,
     ReportActionCallback,
     WaitingThresholdCallback,
+    build_drink_threshold_keyboard,
     build_report_keyboard,
     build_waiting_threshold_keyboard,
 )
@@ -20,6 +24,14 @@ from services.dagster import DagsterClient, DagsterLaunchError
 
 
 router = Router()
+DIRECT_REPORT_ACTIONS = (
+    "certificates",
+    "later",
+    "sectors",
+    "longers",
+    "later_rest",
+    "assembly_rest",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,10 +79,46 @@ MANUAL_REPORT_CONFIGS = {
         launch_error_popup="Не удалось запустить отчет по долгим доставкам",
         log_label="Longers",
     ),
+    "later_rest": ManualReportLaunchConfig(
+        job_name="later_rest_job",
+        op_name="later_rest_op",
+        success_popup="Запускаю сбор отчета по долгим заказам...",
+        launch_error_popup="Не удалось запустить отчет по долгим заказам",
+        log_label="LaterRest",
+    ),
+    "assembly_rest": ManualReportLaunchConfig(
+        job_name="assembly_rest_job",
+        op_name="assembly_rest_op",
+        success_popup="Запускаю сбор отчета по долгой сборке заказа...",
+        launch_error_popup="Не удалось запустить отчет по долгой сборке заказа",
+        log_label="AssemblyRest",
+    ),
+    "drink_rest": ManualReportLaunchConfig(
+        job_name="drink_rest_job",
+        op_name="drink_rest_op",
+        success_popup="Запускаю сбор отчета по долгим напиткам...",
+        launch_error_popup="Не удалось запустить отчет по долгим напиткам",
+        log_label="DrinkRest",
+    ),
+}
+THRESHOLD_KEYBOARD_CONFIGS = {
+    "waiting": (
+        build_waiting_threshold_keyboard,
+        "Выберите порог ожидания",
+        "Не удалось показать порог ожидания",
+        "Failed to show waiting threshold keyboard",
+    ),
+    "drink_rest": (
+        build_drink_threshold_keyboard,
+        "Выберите порог времени",
+        "Не удалось показать порог времени",
+        "Failed to show drink threshold keyboard",
+    ),
 }
 
 
 def _find_unit(ctx: dict[str, Any], unit_uuid: str) -> dict[str, Any] | None:
+    """Ищет заведение в пользовательском контексте, загруженном middleware."""
     for unit in ctx.get("units", []):
         if unit.get("uuid") == unit_uuid:
             return unit
@@ -98,6 +146,7 @@ async def _launch_manual_report(
     config = config or load_config()
     state_data = await state.get_data()
     ctx = state_data.get("ctx") or {}
+    # Не берем unit из callback вслепую — сначала проверяем, что он реально есть в доступах пользователя.
     unit = _find_unit(ctx, unit_uuid)
 
     if not unit:
@@ -132,8 +181,10 @@ async def _launch_manual_report(
     if topic_id is not None:
         op_config["topic_id"] = int(topic_id)
     if getattr(message, "date", None) is not None:
+        # Дата сообщения нужна manual-job'ам, которые считают окно как "дата сообщения - 1 день".
         op_config["message_date"] = message.date.isoformat()
 
+    # Теги потом помогают фильтровать manual-run'ы в Dagster и быстро понимать их источник.
     tags = {
         "source": "aida3",
         "post": post,
@@ -193,108 +244,103 @@ async def _launch_manual_report(
     await callback.answer(report_config.success_popup)
 
 
-@router.callback_query(ReportActionCallback.filter(F.action == "certificates"))
-async def launch_certificates_report(
-    callback: CallbackQuery,
-    callback_data: ReportActionCallback,
-    state: FSMContext,
-    config: Config | None = None,
-) -> None:
-    """Запускает `certificates_job` для одного заведения из inline-кнопки."""
-    await _launch_manual_report(
-        callback,
-        unit_uuid=callback_data.unit_uuid,
-        action=callback_data.action,
-        post=callback_data.post,
-        state=state,
-        report_config=MANUAL_REPORT_CONFIGS["certificates"],
-        config=config,
-    )
-
-
-@router.callback_query(ReportActionCallback.filter(F.action == "later"))
-async def launch_later_report(
-    callback: CallbackQuery,
-    callback_data: ReportActionCallback,
-    state: FSMContext,
-    config: Config | None = None,
-) -> None:
-    """Запускает `later_job` для одного заведения из inline-кнопки."""
-    await _launch_manual_report(
-        callback,
-        unit_uuid=callback_data.unit_uuid,
-        action=callback_data.action,
-        post=callback_data.post,
-        state=state,
-        report_config=MANUAL_REPORT_CONFIGS["later"],
-        config=config,
-    )
-
-
-@router.callback_query(ReportActionCallback.filter(F.action == "sectors"))
-async def launch_sectors_report(
-    callback: CallbackQuery,
-    callback_data: ReportActionCallback,
-    state: FSMContext,
-    config: Config | None = None,
-) -> None:
-    """Запускает `sectors_job` для одного заведения из inline-кнопки."""
-    await _launch_manual_report(
-        callback,
-        unit_uuid=callback_data.unit_uuid,
-        action=callback_data.action,
-        post=callback_data.post,
-        state=state,
-        report_config=MANUAL_REPORT_CONFIGS["sectors"],
-        config=config,
-    )
-
-
-@router.callback_query(ReportActionCallback.filter(F.action == "longers"))
-async def launch_longers_report(
-    callback: CallbackQuery,
-    callback_data: ReportActionCallback,
-    state: FSMContext,
-    config: Config | None = None,
-) -> None:
-    """Запускает `longers_job` для одного заведения из inline-кнопки."""
-    await _launch_manual_report(
-        callback,
-        unit_uuid=callback_data.unit_uuid,
-        action=callback_data.action,
-        post=callback_data.post,
-        state=state,
-        report_config=MANUAL_REPORT_CONFIGS["longers"],
-        config=config,
-    )
-
-
-@router.callback_query(ReportActionCallback.filter(F.action == "waiting"))
-async def show_waiting_thresholds(
+async def _show_threshold_keyboard(
     callback: CallbackQuery,
     callback_data: ReportActionCallback,
 ) -> None:
-    """Показывает inline-клавиатуру выбора порога ожидания."""
+    """Показывает inline-клавиатуру выбора порога отчета."""
     message = callback.message
     if message is None:
         await callback.answer("Не удалось определить сообщение", show_alert=True)
         return
 
+    builder, success_text, error_text, error_log = THRESHOLD_KEYBOARD_CONFIGS[callback_data.action]
     try:
+        # Меняем только клавиатуру сообщения: сам текст отчета/карточки трогать не нужно.
         await message.edit_reply_markup(
-            reply_markup=build_waiting_threshold_keyboard(
+            reply_markup=builder(
                 callback_data.post,
                 callback_data.unit_uuid,
             )
         )
-        await callback.answer("Выберите порог ожидания")
+        await callback.answer(success_text)
     except Exception:
         logger.bind(
             unit_uuid=callback_data.unit_uuid,
             chat_id=message.chat.id,
             user_id=callback.from_user.id,
-        ).exception("Failed to show waiting threshold keyboard")
-        await callback.answer("Не удалось показать порог ожидания", show_alert=True)
+        ).exception(error_log)
+        await callback.answer(error_text, show_alert=True)
+
+
+@router.callback_query(ReportActionCallback.filter(F.action.in_(DIRECT_REPORT_ACTIONS)))
+async def launch_direct_report(
+    callback: CallbackQuery,
+    callback_data: ReportActionCallback,
+    state: FSMContext,
+    config: Config | None = None,
+) -> None:
+    """Запускает manual job без промежуточного выбора порога."""
+    await _launch_manual_report(
+        callback,
+        unit_uuid=callback_data.unit_uuid,
+        action=callback_data.action,
+        post=callback_data.post,
+        state=state,
+        report_config=MANUAL_REPORT_CONFIGS[callback_data.action],
+        config=config,
+    )
+
+
+@router.callback_query(ReportActionCallback.filter(F.action.in_(tuple(THRESHOLD_KEYBOARD_CONFIGS))))
+async def show_threshold_keyboard(
+    callback: CallbackQuery,
+    callback_data: ReportActionCallback,
+) -> None:
+    """Показывает inline-клавиатуру выбора порога."""
+    await _show_threshold_keyboard(callback, callback_data)
+
+
+async def _launch_threshold_report(
+    callback: CallbackQuery,
+    *,
+    post: str,
+    unit_uuid: str,
+    action: str,
+    report_config: ManualReportLaunchConfig,
+    state: FSMContext,
+    threshold_minutes: int,
+    extra_op_config: dict[str, Any],
+    extra_tags: dict[str, str],
+    restore_error_log: str,
+    config: Config | None = None,
+) -> None:
+    try:
+        await _launch_manual_report(
+            callback,
+            unit_uuid=unit_uuid,
+            action=action,
+            post=post,
+            state=state,
+            report_config=report_config,
+            extra_op_config=extra_op_config,
+            extra_tags=extra_tags,
+            config=config,
+        )
+    finally:
+        message = callback.message
+        if message is not None:
+            try:
+                await message.edit_reply_markup(
+                    reply_markup=build_report_keyboard(post, unit_uuid)
+                )
+            except Exception:
+                logger.bind(
+                    unit_uuid=unit_uuid,
+                    chat_id=message.chat.id,
+                    user_id=callback.from_user.id,
+                    threshold_minutes=threshold_minutes,
+                ).exception(restore_error_log)
 
 
 @router.callback_query(WaitingThresholdCallback.filter())
@@ -305,38 +351,50 @@ async def launch_waiting_report(
     config: Config | None = None,
 ) -> None:
     """Запускает `waiting_job` для выбранного порога ожидания."""
-    try:
-        await _launch_manual_report(
-            callback,
-            unit_uuid=callback_data.unit_uuid,
-            action="waiting",
-            post=callback_data.post,
-            state=state,
-            report_config=MANUAL_REPORT_CONFIGS["waiting"],
-            extra_op_config={
-                "wait_threshold_seconds": int(callback_data.minutes) * 60,
-            },
-            extra_tags={
-                "wait_threshold_minutes": str(callback_data.minutes),
-            },
-            config=config,
-        )
-    finally:
-        message = callback.message
-        if message is not None:
-            try:
-                await message.edit_reply_markup(
-                    reply_markup=build_report_keyboard(
-                        callback_data.post,
-                        callback_data.unit_uuid,
-                    )
-                )
-            except Exception:
-                logger.bind(
-                    unit_uuid=callback_data.unit_uuid,
-                    chat_id=message.chat.id,
-                    user_id=callback.from_user.id,
-                ).exception("Failed to restore report keyboard after waiting selection")
+    await _launch_threshold_report(
+        callback,
+        post=callback_data.post,
+        unit_uuid=callback_data.unit_uuid,
+        action="waiting",
+        report_config=MANUAL_REPORT_CONFIGS["waiting"],
+        state=state,
+        threshold_minutes=int(callback_data.minutes),
+        extra_op_config={
+            "wait_threshold_seconds": int(callback_data.minutes) * 60,
+        },
+        extra_tags={
+            "wait_threshold_minutes": str(callback_data.minutes),
+        },
+        restore_error_log="Failed to restore report keyboard after waiting selection",
+        config=config,
+    )
+
+
+@router.callback_query(DrinkThresholdCallback.filter())
+async def launch_drink_rest_report(
+    callback: CallbackQuery,
+    callback_data: DrinkThresholdCallback,
+    state: FSMContext,
+    config: Config | None = None,
+) -> None:
+    """Запускает `drink_rest_job` для выбранного порога времени."""
+    await _launch_threshold_report(
+        callback,
+        post=callback_data.post,
+        unit_uuid=callback_data.unit_uuid,
+        action="drink_rest",
+        report_config=MANUAL_REPORT_CONFIGS["drink_rest"],
+        state=state,
+        threshold_minutes=int(callback_data.minutes),
+        extra_op_config={
+            "drink_threshold_seconds": int(callback_data.minutes) * 60,
+        },
+        extra_tags={
+            "drink_threshold_minutes": str(callback_data.minutes),
+        },
+        restore_error_log="Failed to restore report keyboard after drink selection",
+        config=config,
+    )
 
 
 @router.callback_query(F.data == HIDE_REPORT_CALLBACK)

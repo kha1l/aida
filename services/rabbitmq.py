@@ -1,3 +1,5 @@
+"""Фоновый consumer RabbitMQ для доставки готовых payload в Telegram."""
+
 import asyncio
 import contextlib
 import json
@@ -17,6 +19,7 @@ async def rabbit_listener(bot: Bot, rabbit_url: str, queue_name: str):
 
     async def on_message(message: aio_pika.IncomingMessage) -> None:
         payload = {}
+        # message.process() сам управляет ack/nack, если внутри не произошло исключение.
         async with message.process():
             try:
                 # Формат сообщения:
@@ -28,6 +31,7 @@ async def rabbit_listener(bot: Bot, rabbit_url: str, queue_name: str):
                 post = payload.get("post")
                 text = payload["text"]
                 unit_uuid = payload.get("unit_uuid") or payload.get("uuid")
+                # Клавиатура подмешивается на стороне бота, чтобы payload из очереди оставался простым.
                 keyboard = build_report_keyboard(post, unit_uuid)
 
                 if post and not unit_uuid:
@@ -72,6 +76,7 @@ async def rabbit_listener(bot: Bot, rabbit_url: str, queue_name: str):
         queue = await channel.declare_queue(queue_name, durable=True)
         consumer_tag = await queue.consume(on_message)
 
+        # Держим coroutine живой, пока приложение не пришлет CancelledError.
         await asyncio.Future()
     except asyncio.CancelledError:
         logger.info("Rabbit listener stopped")
