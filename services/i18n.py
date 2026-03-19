@@ -1,3 +1,4 @@
+"""Локализация и fallback-переводы интерфейса бота."""
 from gettext import GNUTranslations, NullTranslations, translation
 
 # Резервные переводы (используются, если нет .mo файлов)
@@ -43,10 +44,12 @@ FALLBACK_TRANSLATIONS: dict[str, dict[str, str]] = {
         "\U0001F4E9 Tickets": "\U0001F4E9 Тикеты",
         "\U0001F5C2 Tenure/Anniversary": "\U0001F5C2 Стаж/Годовщина",
         "\U0001F17E Cancellations": "\U0001F17E Отказы",
+        "\U0001F9EA Defect": "\U0001F9EA Брак",
         "\U0001F699 Courier reports": "\U0001F699 Отчеты по курьерам",
         "\U0001F957 Restaurant reports": "\U0001F957 Отчеты по ресторану",
         "\U0001F4C9 Metrics": "\U0001F4C9 Метрики",
         "\U0001F69A Stock balances": "\U0001F69A Складские остатки",
+        "\U0001F5D1 Write-offs": "\U0001F5D1 Списания",
         "\U0001F3E0 Restaurant stops": "\U0001F3E0 Стопы пиццерии",
         "\U0001F9C0 Key ingredient stops": "\U0001F9C0 Cтопы ключевых ингредиентов",
         "\U0001F355 Ingredient stops": "\U0001F355 Стопы ингредиентов",

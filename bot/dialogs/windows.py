@@ -1,3 +1,4 @@
+"""Окна меню и навигации в aiogram_dialog."""
 from aiogram_dialog import Window
 from aiogram_dialog.widgets.kbd import Button, Column, Row, Select, SwitchTo, Url, Multiselect, Group
 from aiogram_dialog.widgets.text import Const, Format
@@ -75,6 +76,7 @@ class MenuWindows:
                 SwitchTo(Format("{btn_tickets}"), id="tickets", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("tickets", MenuSG.units)),
                 SwitchTo(Format("{btn_staff}"), id="staff", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("staff", MenuSG.units)),
                 SwitchTo(Format("{btn_cancellations}"), id="refusal", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("refusal", MenuSG.units)),
+                SwitchTo(Format("{btn_defect}"), id="defect", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("defect", MenuSG.units)),
                 SwitchTo(Format("{btn_back}"), id="back", state=MenuSG.main),
             ),
             getter=MenuGetters.texts_data,
@@ -92,6 +94,7 @@ class MenuWindows:
                 SwitchTo(Format("{btn_restaurant_reports}"), id="stationary", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("stationary", MenuSG.units)),
                 SwitchTo(Format("{btn_metrics}"), id="metrics", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("metrics", MenuSG.units)),
                 SwitchTo(Format("{btn_stock_balances}"), id="stock", state=MenuSG.stocks, on_click=MenuHandlers.set_type_stock),
+                SwitchTo(Format("{btn_writeoff}"), id="writeoff", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("writeoff", MenuSG.units)),
                 SwitchTo(Format("{btn_back}"), id="back", state=MenuSG.main),
             ),
             getter=MenuGetters.texts_data,
@@ -164,7 +167,6 @@ class MenuWindows:
             state=MenuSG.units,
         )
 
-    @staticmethod
     @staticmethod
     def language() -> Window:
         """Возвращает окно выбора языка интерфейса."""

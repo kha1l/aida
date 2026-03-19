@@ -1,3 +1,5 @@
+"""Обработчики действий в меню подписок и отчетов."""
+import logging
 from typing import Callable, Awaitable, cast
 
 from aiogram.types import CallbackQuery
@@ -13,6 +15,9 @@ from database.requests.orders import get_orders_by_post, upsert_order, delete_or
 from datetime import datetime
 
 
+logger = logging.getLogger(__name__)
+
+
 class MenuHandlers:
     """Коллекция обработчиков для диалогов меню."""
     @staticmethod
@@ -24,6 +29,22 @@ class MenuHandlers:
             or manager.middleware_data.get("_")
         )
         return value if callable(value) else (lambda s: s)
+
+    @staticmethod
+    def _drop_widget_state(manager: DialogManager, key: str) -> None:
+        """Мягко удаляет данные виджета из текущего контекста диалога."""
+        try:
+            manager.current_context().widget_data.pop(key, None)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Не удалось сбросить widget_data[%s]", key, exc_info=exc)
+
+    @staticmethod
+    def _set_widget_state(manager: DialogManager, key: str, value) -> None:
+        """Мягко записывает данные виджета в текущий контекст диалога."""
+        try:
+            manager.current_context().widget_data[key] = value
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Не удалось записать widget_data[%s]", key, exc_info=exc)
 
     @staticmethod
     async def set_type_notice(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
@@ -46,11 +67,7 @@ class MenuHandlers:
         # Переходим в режим "складские остатки" и сбрасываем выбор категорий
         manager.dialog_data["type"] = "stock"
         manager.dialog_data["post"] = "stock"
-        try:
-            ctx_state = manager.current_context()
-            ctx_state.widget_data.pop("stocks", None)
-        except Exception:
-            pass
+        MenuHandlers._drop_widget_state(manager, "stocks")
 
     @staticmethod
     async def on_exit(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
@@ -60,8 +77,8 @@ class MenuHandlers:
             # Пытаемся удалить текущее сообщение с меню
             if callback.message:
                 await callback.message.delete()
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Не удалось удалить сообщение меню при выходе", exc_info=exc)
         await manager.done()
         await callback.message.answer(_(MenuTexts.EXIT_MESSAGE))
 
@@ -72,11 +89,7 @@ class MenuHandlers:
             """Сохраняет выбранный post и открывает нужное окно."""
             # Если тип отчёта изменился — сбрасываем выбор заведений
             if manager.dialog_data.get("post") != post:
-                try:
-                    ctx_state = manager.current_context()
-                    ctx_state.widget_data.pop("units", None)
-                except Exception:
-                    pass
+                MenuHandlers._drop_widget_state(manager, "units")
             manager.dialog_data["post"] = post
             await manager.switch_to(state)
 
@@ -88,11 +101,7 @@ class MenuHandlers:
         async def _handler(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
             """Сохраняет выбранный stop-post и открывает список заведений."""
             if manager.dialog_data.get("post") != post:
-                try:
-                    ctx_state = manager.current_context()
-                    ctx_state.widget_data.pop("units", None)
-                except Exception:
-                    pass
+                MenuHandlers._drop_widget_state(manager, "units")
             manager.dialog_data["post"] = post
             await manager.switch_to(MenuSG.units)
 
@@ -226,23 +235,15 @@ class MenuHandlers:
     @staticmethod
     async def on_units_subscribe_all(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
         """Выбирает все заведения и сразу применяет подписку."""
-        try:
-            ctx_state = manager.current_context()
-            units_meta = manager.dialog_data.get("units_meta", {})
-            unit_ids = list(units_meta.keys())
-            ctx_state.widget_data["units"] = unit_ids
-        except Exception:
-            pass
+        units_meta = manager.dialog_data.get("units_meta", {})
+        unit_ids = list(units_meta.keys())
+        MenuHandlers._set_widget_state(manager, "units", unit_ids)
         await MenuHandlers.on_units_commit(callback, button, manager)
 
     @staticmethod
     async def on_units_unsubscribe_all(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
         """Снимает подписку со всех заведений и возвращает назад."""
-        try:
-            ctx_state = manager.current_context()
-            ctx_state.widget_data["units"] = []
-        except Exception:
-            pass
+        MenuHandlers._set_widget_state(manager, "units", [])
         await MenuHandlers.on_units_commit(callback, button, manager)
 
         type_ = manager.dialog_data.get("type")

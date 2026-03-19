@@ -1,5 +1,7 @@
 from typing import Any
 
+import logging
+
 from aiogram_dialog import DialogManager
 
 from bot.dialogs.data import STOCK_ITEMS, POST
@@ -8,8 +10,20 @@ from database.requests.orders import get_orders_by_post
 from bot.dialogs.helpers import DialogContext
 
 
+logger = logging.getLogger(__name__)
+
+
 class MenuGetters:
     """Геттеры данных для окон меню (aiogram_dialog)."""
+    @staticmethod
+    def _get_context_state(dialog_manager: DialogManager, *, action: str):
+        """Возвращает текущий контекст диалога и тихо логирует сбои UI-состояния."""
+        try:
+            return dialog_manager.current_context()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Не удалось получить current_context для %s", action, exc_info=exc)
+            return None
+
     @staticmethod
     def _translator(dialog_manager: DialogManager):
         """Безопасно достаёт функцию перевода из middleware."""
@@ -54,10 +68,12 @@ class MenuGetters:
             "btn_tickets": _("\U0001F4E9 Tickets"),
             "btn_staff": _("\U0001F5C2 Tenure/Anniversary"),
             "btn_cancellations": _("\U0001F17E Cancellations"),
+            "btn_defect": _("\U0001F9EA Defect"),
             "btn_courier_reports": _("\U0001F699 Courier reports"),
             "btn_restaurant_reports": _("\U0001F957 Restaurant reports"),
             "btn_metrics": _("\U0001F4C9 Metrics"),
             "btn_stock_balances": _("\U0001F69A Stock balances"),
+            "btn_writeoff": _("\U0001F5D1 Write-offs"),
             "btn_stops_rest": _("\U0001F3E0 Restaurant stops"),
             "btn_stops_key_ings": _("\U0001F9C0 Key ingredient stops"),
             "btn_stops_ings": _("\U0001F355 Ingredient stops"),
@@ -100,9 +116,9 @@ class MenuGetters:
         event_chat = dialog_manager.middleware_data.get("event_chat")
         post = dialog_manager.dialog_data.get("post")
         if session and event_chat and post:
-            try:
-                ctx_state = dialog_manager.current_context()
-                if ctx_state.widget_data.get("units") is None:
+            ctx_state = MenuGetters._get_context_state(dialog_manager, action="units_data")
+            if ctx_state and ctx_state.widget_data.get("units") is None:
+                try:
                     # Подтягиваем уже подписанные заведения из БД
                     orders = await get_orders_by_post(session, event_chat.id, post)
                     selected = []
@@ -112,8 +128,8 @@ class MenuGetters:
                     ctx_state.widget_data["units"] = selected
                     subs_by_post = dialog_manager.dialog_data.setdefault("subs_by_post", {})
                     subs_by_post[post] = selected
-            except Exception:
-                pass
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Не удалось предзагрузить выбранные заведения", exc_info=exc)
         return {
             "units": units,
             **MenuGetters._texts(dialog_manager),
@@ -129,9 +145,9 @@ class MenuGetters:
         post = dialog_manager.dialog_data.get("post")
         valid_ids = {item["id"] for item in STOCK_ITEMS}
         if session and event_chat and post == "stock":
-            try:
-                ctx_state = dialog_manager.current_context()
-                if ctx_state.widget_data.get("stocks") is None:
+            ctx_state = MenuGetters._get_context_state(dialog_manager, action="stocks_data")
+            if ctx_state and ctx_state.widget_data.get("stocks") is None:
+                try:
                     orders = await get_orders_by_post(session, event_chat.id, "stock")
                     selected = []
                     for order in orders:
@@ -142,8 +158,8 @@ class MenuGetters:
                             else:
                                 selected.extend([p for p in order.params.split(",") if p in valid_ids])
                     ctx_state.widget_data["stocks"] = selected
-            except Exception:
-                pass
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Не удалось предзагрузить категории stock", exc_info=exc)
         return {
             "stocks": [
                 {**item, "label": _(item["label"])}

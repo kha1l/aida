@@ -1,3 +1,4 @@
+"""CRUD-запросы к таблице `aida.orders`."""
 from typing import Iterable, List
 
 from sqlalchemy import select, update, delete

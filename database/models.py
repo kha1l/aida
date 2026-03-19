@@ -1,3 +1,4 @@
+"""SQLAlchemy-модели бота и пользовательских подписок."""
 from datetime import datetime
 from typing import Optional, List
 

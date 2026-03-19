@@ -13,16 +13,16 @@
 
 ## Основные сценарии
 
-### 1. Daily-отчеты
+### Daily-отчеты
 
 1. `aida_functions` кладет payload в RabbitMQ.
 2. `aida3` забирает payload из очереди.
 3. Бот отправляет сообщение в Telegram и достраивает inline-клавиатуру на своей стороне.
 
-### 2. Manual-отчеты
+### Manual-отчеты
 
 1. Пользователь нажимает кнопку в сообщении.
-2. `aida3` собирает `unit_uuid`, `account_id`, `chat_id`, `topic_id`, `message_date`.
+2. `aida3` собирает `unit_uuid`, `account_id`, `chat_id`, `topic_id`, `message_date` и, если нужно, порог.
 3. Бот запускает соответствующий Dagster job через GraphQL.
 4. Готовый результат приходит обратно через RabbitMQ.
 
@@ -36,11 +36,31 @@
 | `bot/handlers/` | `/start`, inline-actions, обработка ошибок |
 | `bot/keyboards/` | Inline-клавиатуры для отчетов и порогов |
 | `bot/middlewares/` | Логирование, БД-сессия, локализация и загрузка user context |
-| `database/` | SQLAlchemy engine и модели |
+| `database/` | SQLAlchemy engine, модели и запросы к подпискам |
 | `services/rabbitmq.py` | Consumer очереди и отправка сообщений в Telegram |
 | `services/dagster.py` | Запуск Dagster jobs через GraphQL |
 | `services/cache.py` | Подключение к Redis |
-| `services/i18n.py` | Локализация и переводы |
+| `services/i18n.py` | Локализация и fallback-переводы |
+
+## Меню подписок
+
+### Уведомления
+
+- дни рождения;
+- стаж и годовщины;
+- отмененные заказы;
+- брак;
+- стопы;
+- тикеты.
+
+### Отчеты
+
+- выручка по сети;
+- курьеры;
+- ресторан;
+- метрики;
+- складские остатки;
+- списания.
 
 ## Зависимости
 
@@ -48,14 +68,23 @@
 - Redis
 - RabbitMQ
 
-Дополнительно для manual-отчетов нужен доступ к Dagster GraphQL endpoint.
+Для manual-отчетов дополнительно нужен доступ к Dagster GraphQL endpoint.
 
-## Установка
+## Установка и локальный запуск
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+python3 main.py
+```
+
+Если manual-отчеты должны запускаться локально, рядом нужно поднять `aida_functions`:
+
+```bash
+cd ../aida_functions
+source .venv/bin/activate
+dagster dev -m defs
 ```
 
 ## Основные переменные окружения
@@ -90,23 +119,10 @@ pip install -r requirements.txt
 - `DAGSTER_AUTH_HEADER_VALUE`
 - `DAGSTER_REQUEST_TIMEOUT_SECONDS`
 
-## Локальный запуск
-
-```bash
-python3 main.py
-```
-
-Если manual-отчеты должны запускаться локально, рядом нужно поднять `aida_functions`:
-
-```bash
-cd ../aida_functions
-source .venv/bin/activate
-dagster dev -m defs
-```
-
 ## Что важно знать
 
 - Rabbit listener стартует вместе с ботом и ожидает рабочий `RABBIT_URL`.
 - Inline-клавиатуры для payload строятся в `aida3`, а не в `aida_functions`.
 - Для некоторых отчетов бот сначала показывает клавиатуру выбора порога, а job запускается только после второго клика.
 - Для `certificates`, `later`, `waiting`, `sectors`, `longers`, `later_rest`, `assembly_rest`, `drink_rest` после отправки отчета доступна кнопка `Скрыть отчет`.
+- Подписки в `aida.orders` создаются и обновляются из меню бота через `database/requests/orders.py`.

@@ -1,3 +1,4 @@
+"""Запросы к пользовательским настройкам чатов."""
 from typing import Any
 
 from aiogram.types import TelegramObject

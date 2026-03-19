@@ -1,3 +1,4 @@
+"""Обработчики ошибок Telegram-бота."""
 import asyncio
 
 from aiogram import Router

@@ -1,3 +1,4 @@
+"""Стартовые команды и базовые обработчики бота."""
 from typing import Callable, Optional, Dict, Any
 
 from aiogram import Router
