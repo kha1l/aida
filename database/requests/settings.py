@@ -48,3 +48,14 @@ async def set_chat_language(session: AsyncSession, chat_id: int, country: str) -
     )
     await session.execute(stmt)
     await session.commit()
+
+
+async def get_chat_language(session: AsyncSession, chat_id: int) -> str | None:
+    """Возвращает язык интерфейса для конкретного Telegram-чата."""
+    stmt = (
+        select(Settings.country)
+        .where(Settings.chat_id == chat_id)
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()

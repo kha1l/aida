@@ -13,22 +13,50 @@ from bot.dialogs.texts import MenuTexts
 from database.requests.settings import set_chat_language
 from database.requests.orders import get_orders_by_post, upsert_order, delete_order
 from datetime import datetime
+from config import load_config
+from services.dagster import DagsterClient, DagsterLaunchError
+from services.i18n import get_translator, tr
 
 
 logger = logging.getLogger(__name__)
 
 
+# Конфигурация manual-job'ов, которые запускаются из раздела "Оперативные данные".
+OPERATION_JOB_CONFIGS = {
+    "tracking": {
+        "job_name": "tracking_job",
+        "op_name": "tracking_op",
+        "success_popup": "Starting tracking collection...",
+        "error_popup": "Unable to start tracking",
+    },
+    "metrics": {
+        "job_name": "metrics_manual_job",
+        "op_name": "metrics_manual_op",
+        "success_popup": "Starting metrics collection...",
+        "error_popup": "Unable to start metrics report",
+    },
+    "revenue": {
+        "job_name": "revenue_manual_job",
+        "op_name": "revenue_manual_op",
+        "success_popup": "Starting revenue collection...",
+        "error_popup": "Unable to start revenue report",
+    },
+    "stock": {
+        "job_name": "stock_manual_job",
+        "op_name": "stock_manual_op",
+        "success_popup": "Starting stock balance collection...",
+        "error_popup": "Unable to start stock balance report",
+    },
+}
+
+
 class MenuHandlers:
     """Коллекция обработчиков для диалогов меню."""
+
     @staticmethod
     def _translator(manager: DialogManager):
         """Безопасно достаёт переводчик из middleware data."""
-        # Берём функцию перевода из middleware (если нет — fallback)
-        value = (
-            manager.middleware_data.get("i18n_gettext")
-            or manager.middleware_data.get("_")
-        )
-        return value if callable(value) else (lambda s: s)
+        return get_translator(manager)
 
     @staticmethod
     def _drop_widget_state(manager: DialogManager, key: str) -> None:
@@ -47,26 +75,58 @@ class MenuHandlers:
             logger.debug("Не удалось записать widget_data[%s]", key, exc_info=exc)
 
     @staticmethod
+    def _reset_units_selection(manager: DialogManager) -> None:
+        """Сбрасывает выбранные заведения перед новым сценарием выбора."""
+        MenuHandlers._drop_widget_state(manager, "units")
+
+    @staticmethod
+    def _set_dialog_type(manager: DialogManager, dialog_type: str, *, post: str | None = None) -> None:
+        """Единообразно переключает режим диалога и обновляет связанный `post`."""
+        manager.dialog_data["type"] = dialog_type
+        if post is None:
+            manager.dialog_data.pop("post", None)
+        else:
+            manager.dialog_data["post"] = post
+
+    @staticmethod
+    def _dialog_back_state(dialog_type: str | None) -> MenuSG:
+        """Возвращает экран, на который нужно вернуться из выбора заведений."""
+        if dialog_type == "stock":
+            return MenuSG.stocks
+        if dialog_type == "stop":
+            return MenuSG.stops
+        if dialog_type == "reports":
+            return MenuSG.reports
+        if str(dialog_type).startswith("operation_"):
+            return MenuSG.operation
+        return MenuSG.notice
+
+    @staticmethod
+    def _build_dagster_client() -> DagsterClient:
+        """Создает Dagster GraphQL-клиент из текущего env-конфига."""
+        config = load_config()
+        return DagsterClient.from_settings(config.dagster)
+
+    @staticmethod
     async def set_type_notice(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
         """Переключает контекст диалога на уведомления."""
-        manager.dialog_data["type"] = "notice"
+        MenuHandlers._set_dialog_type(manager, "notice")
 
     @staticmethod
     async def set_type_reports(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
         """Переключает контекст диалога на отчёты."""
-        manager.dialog_data["type"] = "reports"
+        MenuHandlers._set_dialog_type(manager, "reports")
 
     @staticmethod
     async def set_type_stop(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
         """Переключает контекст диалога на меню стопов."""
-        manager.dialog_data["type"] = "stop"
+        MenuHandlers._set_dialog_type(manager, "stop")
 
     @staticmethod
     async def set_type_stock(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
         """Подготавливает диалог к выбору складских остатков."""
-        # Переходим в режим "складские остатки" и сбрасываем выбор категорий
-        manager.dialog_data["type"] = "stock"
-        manager.dialog_data["post"] = "stock"
+        # Для stock сначала выбираем категории, поэтому дополнительно чистим виджет `stocks`.
+        MenuHandlers._set_dialog_type(manager, "stock", post="stock")
         MenuHandlers._drop_widget_state(manager, "stocks")
 
     @staticmethod
@@ -87,9 +147,8 @@ class MenuHandlers:
         """Строит обработчик выбора типа отчёта."""
         async def _handler(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
             """Сохраняет выбранный post и открывает нужное окно."""
-            # Если тип отчёта изменился — сбрасываем выбор заведений
             if manager.dialog_data.get("post") != post:
-                MenuHandlers._drop_widget_state(manager, "units")
+                MenuHandlers._reset_units_selection(manager)
             manager.dialog_data["post"] = post
             await manager.switch_to(state)
 
@@ -101,7 +160,7 @@ class MenuHandlers:
         async def _handler(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
             """Сохраняет выбранный stop-post и открывает список заведений."""
             if manager.dialog_data.get("post") != post:
-                MenuHandlers._drop_widget_state(manager, "units")
+                MenuHandlers._reset_units_selection(manager)
             manager.dialog_data["post"] = post
             await manager.switch_to(MenuSG.units)
 
@@ -123,6 +182,11 @@ class MenuHandlers:
         # Применяем выбор заведений для отчёта/уведомления
         widget = cast(Multiselect, manager.find("units"))
         selected = set(widget.get_checked())
+
+        dialog_type = str(manager.dialog_data.get("type") or "")
+        if dialog_type.startswith("operation_"):
+            await MenuHandlers._launch_operation_job(callback, manager, selected)
+            return
 
         post = manager.dialog_data.get("post")
         if not post:
@@ -238,42 +302,105 @@ class MenuHandlers:
         units_meta = manager.dialog_data.get("units_meta", {})
         unit_ids = list(units_meta.keys())
         MenuHandlers._set_widget_state(manager, "units", unit_ids)
+        if str(manager.dialog_data.get("type") or "").startswith("operation_"):
+            await manager.switch_to(MenuSG.units)
+            return
         await MenuHandlers.on_units_commit(callback, button, manager)
 
     @staticmethod
     async def on_units_unsubscribe_all(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
         """Снимает подписку со всех заведений и возвращает назад."""
         MenuHandlers._set_widget_state(manager, "units", [])
+        if str(manager.dialog_data.get("type") or "").startswith("operation_"):
+            await manager.switch_to(MenuSG.units)
+            return
         await MenuHandlers.on_units_commit(callback, button, manager)
-
-        type_ = manager.dialog_data.get("type")
-        if type_ == "notice":
-            await manager.switch_to(MenuSG.notice)
-        elif type_ == "reports" or type_ == "stock":
-            await manager.switch_to(MenuSG.reports)
-        elif type_ == "stop":
-            await manager.switch_to(MenuSG.stops)
-        else:
-            await manager.switch_to(MenuSG.main)
 
     @staticmethod
     async def on_units_back(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
         """Возвращает пользователя в предыдущее меню выбора."""
-        type_ = manager.dialog_data.get("type")
-        if type_ == "stock":
-            await manager.switch_to(MenuSG.stocks)
-        elif type_ == "stop":
-            await manager.switch_to(MenuSG.stops)
-        elif type_ == "reports":
-            await manager.switch_to(MenuSG.reports)
-        else:
-            await manager.switch_to(MenuSG.notice)
+        await manager.switch_to(MenuHandlers._dialog_back_state(manager.dialog_data.get("type")))
 
     @staticmethod
     async def on_operation_action(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
-        """Показывает сообщение о запуске обновления данных."""
+        """Открывает выбор заведений для оперативного отчета."""
         _ = MenuHandlers._translator(manager)
-        await callback.message.answer(_(MenuTexts.UPDATE_WAIT))
+        action = getattr(button, "widget_id", None) or getattr(button, "id", None)
+        if not action:
+            await callback.answer(tr(_, "Unable to determine action"), show_alert=True)
+            return
+        MenuHandlers._set_dialog_type(manager, f"operation_{action}")
+        MenuHandlers._reset_units_selection(manager)
+        await manager.switch_to(MenuSG.units)
+
+    @staticmethod
+    async def _launch_operation_job(
+        callback: CallbackQuery,
+        manager: DialogManager,
+        selected_unit_ids: set[str],
+    ) -> None:
+        """Запускает manual Dagster job для выбранного оперативного отчета."""
+        message = callback.message
+        _ = MenuHandlers._translator(manager)
+        if message is None:
+            await callback.answer(tr(_, "Unable to determine message"), show_alert=True)
+            return
+
+        if not selected_unit_ids:
+            await callback.answer(tr(_, "Choose at least one location"), show_alert=True)
+            return
+
+        dialog_type = str(manager.dialog_data.get("type") or "")
+        action = dialog_type.removeprefix("operation_")
+        config_entry = OPERATION_JOB_CONFIGS.get(action)
+        if config_entry is None:
+            await callback.answer(tr(_, "Unknown live data report type"), show_alert=True)
+            return
+
+        client = MenuHandlers._build_dagster_client()
+
+        units_meta = manager.dialog_data.get("units_meta", {})
+        selected_units = sorted(
+            selected_unit_ids,
+            key=lambda unit_uuid: str((units_meta.get(unit_uuid) or {}).get("name") or unit_uuid).lower(),
+        )
+        tags = {
+            "source": "aida3",
+            "post": action,
+            "action": action,
+            "chat_id": str(message.chat.id),
+            "user_id": str(callback.from_user.id),
+            "unit_count": str(len(selected_units)),
+        }
+        topic_id = getattr(message, "message_thread_id", None)
+        op_config = {
+            "unit_uuids": selected_units,
+            "chat_id": int(message.chat.id),
+        }
+        if topic_id is not None:
+            op_config["topic_id"] = int(topic_id)
+
+        try:
+            run = await client.launch_job(
+                job_name=config_entry["job_name"],
+                op_name=config_entry["op_name"],
+                op_config=op_config,
+                tags=tags,
+            )
+        except DagsterLaunchError as exc:
+            logger.warning("Failed to launch operation job %s: %s", action, exc)
+            await callback.answer(tr(_, config_entry["error_popup"]), show_alert=True)
+            return
+
+        logger.info(
+            "Operation job launched: action=%s run_id=%s chat_id=%s unit_count=%s",
+            action,
+            run.run_id,
+            message.chat.id,
+            len(selected_units),
+        )
+        await callback.answer(tr(_, config_entry["success_popup"]))
+        await manager.switch_to(MenuSG.operation)
 
     @staticmethod
     async def on_language_selected(

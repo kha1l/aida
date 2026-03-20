@@ -7,13 +7,13 @@ def new_account(_) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=_(f'▶️ Авторизация'),
+                    text=_("▶️ Authorization"),
                     url='https://marketplace.dodois.io/11ecf3aaf97d059cb9706f21406ebd11'
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=_(f'🗄 База знаний'),
+                    text=_("🗄 Knowledge base"),
                     url='https://aida.kaiten.site'
                 )
             ],

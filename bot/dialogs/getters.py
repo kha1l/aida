@@ -1,3 +1,5 @@
+"""Геттеры данных для `aiogram_dialog`-окон бота."""
+
 from typing import Any
 
 import logging
@@ -8,9 +10,18 @@ from bot.dialogs.data import STOCK_ITEMS, POST
 from bot.dialogs.texts import MenuTexts
 from database.requests.orders import get_orders_by_post
 from bot.dialogs.helpers import DialogContext
+from services.i18n import get_translator
 
 
 logger = logging.getLogger(__name__)
+
+
+OPERATION_TITLE_MAP = {
+    "operation_tracking": "Choose locations for tracking:",
+    "operation_metrics": "Choose locations for metrics:",
+    "operation_revenue": "Choose locations for network revenue:",
+    "operation_stock": "Choose locations for stock balances:",
+}
 
 
 class MenuGetters:
@@ -27,17 +38,11 @@ class MenuGetters:
     @staticmethod
     def _translator(dialog_manager: DialogManager):
         """Безопасно достаёт функцию перевода из middleware."""
-        # Безопасно получаем функцию перевода из middleware
-        value = (
-            dialog_manager.middleware_data.get("i18n_gettext")
-            or dialog_manager.middleware_data.get("_")
-        )
-        return value if callable(value) else (lambda s: s)
+        return get_translator(dialog_manager)
 
     @staticmethod
     def _texts(dialog_manager: DialogManager) -> dict:
         """Собирает локализованные подписи для меню."""
-        # Все текстовые константы для окна
         _ = MenuGetters._translator(dialog_manager)
         return {
             "title_settings": _(MenuTexts.SETTINGS_TITLE),
@@ -63,6 +68,7 @@ class MenuGetters:
             "btn_current_metrics": _("\U0001F4CA Current metrics"),
             "btn_network_revenue": _("\U0001F4B9 Network revenue"),
             "btn_large_stocks": _("\U0001F69A Large stock balances"),
+            "btn_tracking": _("🛰 Tracking"),
             "btn_birthdays": _("\U0001F389 Birthdays"),
             "btn_stops": _("\U0001F6AB Stops"),
             "btn_tickets": _("\U0001F4E9 Tickets"),
@@ -79,6 +85,8 @@ class MenuGetters:
             "btn_stops_ings": _("\U0001F355 Ingredient stops"),
             "btn_stops_sector": _("\U0001F6A7 Sector stops"),
             "btn_apply": _("\U0001F44C Apply"),
+            "btn_select_all": _("☑️ Select all"),
+            "btn_clear_selection": _("▫️ Clear selection"),
         }
 
     @staticmethod
@@ -98,7 +106,6 @@ class MenuGetters:
     @staticmethod
     async def units_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
         """Готовит список заведений и выбранные подписки."""
-        # Список заведений с учетом подписок из БД
         ctx = await DialogContext.load_ctx(dialog_manager)
         units = [unit.model_dump() for unit in ctx.units]
         dialog_manager.dialog_data["units_by_id"] = {
@@ -119,7 +126,8 @@ class MenuGetters:
             ctx_state = MenuGetters._get_context_state(dialog_manager, action="units_data")
             if ctx_state and ctx_state.widget_data.get("units") is None:
                 try:
-                    # Подтягиваем уже подписанные заведения из БД
+                    # При первом открытии экрана подтягиваем уже сохраненные подписки,
+                    # чтобы пользователь видел текущее состояние без лишних кликов.
                     orders = await get_orders_by_post(session, event_chat.id, post)
                     selected = []
                     for order in orders:
@@ -130,15 +138,27 @@ class MenuGetters:
                     subs_by_post[post] = selected
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("Не удалось предзагрузить выбранные заведения", exc_info=exc)
+        _ = MenuGetters._translator(dialog_manager)
+        texts = MenuGetters._texts(dialog_manager)
+        dialog_type = str(dialog_manager.dialog_data.get("type") or "")
+        if dialog_type.startswith("operation_"):
+            texts["title_units"] = _(
+                OPERATION_TITLE_MAP.get(
+                    dialog_type,
+                    "Choose locations:",
+                )
+            )
+            texts["btn_subscribe_all"] = texts["btn_select_all"]
+            texts["btn_unsubscribe_all"] = texts["btn_clear_selection"]
+
         return {
             "units": units,
-            **MenuGetters._texts(dialog_manager),
+            **texts,
         }
 
     @staticmethod
     async def stocks_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
         """Готовит список категорий складских остатков."""
-        # Категории складских остатков + предвыбор из БД
         _ = MenuGetters._translator(dialog_manager)
         session = dialog_manager.middleware_data.get("session")
         event_chat = dialog_manager.middleware_data.get("event_chat")
@@ -148,6 +168,8 @@ class MenuGetters:
             ctx_state = MenuGetters._get_context_state(dialog_manager, action="stocks_data")
             if ctx_state and ctx_state.widget_data.get("stocks") is None:
                 try:
+                    # В stock-подписке дополнительно сохраняются категории,
+                    # поэтому предзагружаем их отдельно от списка заведений.
                     orders = await get_orders_by_post(session, event_chat.id, "stock")
                     selected = []
                     for order in orders:

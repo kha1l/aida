@@ -8,31 +8,31 @@ def menu(_: Callable[[str], str]) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [
             InlineKeyboardButton(
-                text='🔊 Уведомления',
+                text=_('🔊 Notifications'),
                 callback_data='notice'
             )
         ],
         [
             InlineKeyboardButton(
-                text='📑 Отчеты',
+                text=_('📑 Reports'),
                 callback_data='reports'
             )
         ],
         [
             InlineKeyboardButton(
-                text='💬 Оперативные данные',
+                text=_('💬 Live data'),
                 callback_data='operation'
             )
         ],
         [
             InlineKeyboardButton(
-                text='🛠 Настройки',
+                text=_('🛠 Settings'),
                 callback_data='settings'
             )
         ],
         [
             InlineKeyboardButton(
-                text='❎ Закрыть меню',
+                text=_('❎ Close menu'),
                 callback_data='exit'
             )
         ]

@@ -1,3 +1,5 @@
+"""Конфигурация `aida3`, собираемая из переменных окружения."""
+
 from dataclasses import dataclass
 from environs import Env
 

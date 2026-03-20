@@ -3,14 +3,60 @@
 import asyncio
 import contextlib
 import json
+from dataclasses import dataclass
+
 import aio_pika
 from aiogram import Bot
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.report_actions import build_report_keyboard
+from database.requests.settings import get_chat_language
+from services.i18n import get_translator
 
 
-async def rabbit_listener(bot: Bot, rabbit_url: str, queue_name: str):
+@dataclass(slots=True)
+class RabbitPayload:
+    """Нормализованный payload из очереди, который бот отправляет в Telegram."""
+
+    chat_id: int
+    text: str
+    topic_id: int | None
+    post: str | None
+    unit_uuid: str | None
+
+    @classmethod
+    def from_bytes(cls, raw_body: bytes) -> "RabbitPayload":
+        """Декодирует JSON из RabbitMQ и приводит его к удобной структуре."""
+        raw_payload = json.loads(raw_body.decode())
+        return cls(
+            chat_id=raw_payload["chat_id"],
+            text=raw_payload["text"],
+            topic_id=raw_payload.get("topic_id"),
+            post=raw_payload.get("post"),
+            unit_uuid=raw_payload.get("unit_uuid") or raw_payload.get("uuid"),
+        )
+
+
+async def _resolve_chat_translator(
+    session_maker: async_sessionmaker[AsyncSession] | None,
+    chat_id: int,
+):
+    """Подбирает переводчик для чата по языку, сохраненному в БД."""
+    if session_maker is None:
+        return lambda message: message
+
+    async with session_maker() as session:
+        language = await get_chat_language(session, chat_id)
+    return get_translator(language=language or "ru")
+
+
+async def rabbit_listener(
+    bot: Bot,
+    rabbit_url: str,
+    queue_name: str,
+    session_maker: async_sessionmaker[AsyncSession] | None = None,
+):
     """Слушает очередь RabbitMQ и пересылает сообщения в Telegram."""
     connection = None
     channel = None
@@ -18,55 +64,50 @@ async def rabbit_listener(bot: Bot, rabbit_url: str, queue_name: str):
     consumer_tag = None
 
     async def on_message(message: aio_pika.IncomingMessage) -> None:
-        payload = {}
+        payload: RabbitPayload | None = None
         # message.process() сам управляет ack/nack, если внутри не произошло исключение.
         async with message.process():
             try:
                 # Формат сообщения:
                 # {"chat_id": ..., "text": ..., "topic_id": ..., "post": ..., "unit_uuid": ...}
-                payload = json.loads(message.body.decode())
-
-                chat_id = payload["chat_id"]
-                topic_id = payload.get("topic_id")
-                post = payload.get("post")
-                text = payload["text"]
-                unit_uuid = payload.get("unit_uuid") or payload.get("uuid")
+                payload = RabbitPayload.from_bytes(message.body)
+                translate = await _resolve_chat_translator(session_maker, payload.chat_id)
                 # Клавиатура подмешивается на стороне бота, чтобы payload из очереди оставался простым.
-                keyboard = build_report_keyboard(post, unit_uuid)
+                keyboard = build_report_keyboard(payload.post, payload.unit_uuid, translate=translate)
 
-                if post and not unit_uuid:
+                if payload.post and not payload.unit_uuid:
                     logger.bind(
-                        chat_id=chat_id,
-                        topic_id=topic_id,
+                        chat_id=payload.chat_id,
+                        topic_id=payload.topic_id,
                         queue=queue_name,
-                        post=post,
+                        post=payload.post,
                     ).warning("Keyboard skipped: unit_uuid is missing in payload")
 
                 await bot.send_message(
-                    chat_id=chat_id,
-                    text=text,
-                    message_thread_id=topic_id,
+                    chat_id=payload.chat_id,
+                    text=payload.text,
+                    message_thread_id=payload.topic_id,
                     reply_markup=keyboard,
                 )
 
                 logger.bind(
-                    chat_id=chat_id,
-                    topic_id=topic_id,
+                    chat_id=payload.chat_id,
+                    topic_id=payload.topic_id,
                     queue=queue_name,
-                    post=post,
-                    unit_uuid=unit_uuid,
+                    post=payload.post,
+                    unit_uuid=payload.unit_uuid,
                 ).info(
                     "Message sent successfully",
-                    text=text[:200]
+                    text=payload.text[:200]
                 )
 
             except Exception:
                 logger.bind(
-                    chat_id=payload.get("chat_id"),
-                    topic_id=payload.get("topic_id"),
+                    chat_id=payload.chat_id if payload else None,
+                    topic_id=payload.topic_id if payload else None,
                     queue=queue_name,
-                    post=payload.get("post"),
-                    unit_uuid=payload.get("unit_uuid") or payload.get("uuid"),
+                    post=payload.post if payload else None,
+                    unit_uuid=payload.unit_uuid if payload else None,
                 ).exception("Failed to send message")
 
     try:

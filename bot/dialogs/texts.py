@@ -17,6 +17,11 @@ class MenuTexts:
     LANGUAGE_CHANGED = "Language updated."
 
     EXIT_MESSAGE = "Manage the bot with /start \U0001F44B"
+    ONBOARDING_MESSAGE = (
+        "Hello, {user_name}\n\n"
+        "I'm Aida. I help you manage a restaurant or a restaurant chain "
+        "remotely for Dodo Brands and make the right management decisions. 🗃️"
+    )
 
     UPDATE_WAIT = "Collecting data \U0001F4C0\nPlease wait"
     UPDATE_DONE = "Your locations data has been updated. \U0001F4F1"

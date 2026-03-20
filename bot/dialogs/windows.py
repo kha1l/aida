@@ -11,6 +11,12 @@ from bot.dialogs.texts import MenuTexts
 
 class MenuWindows:
     """Окна меню для aiogram_dialog."""
+
+    @staticmethod
+    def _back_button(target_state: MenuSG) -> SwitchTo:
+        """Строит стандартную кнопку возврата для текущего окна."""
+        return SwitchTo(Format("{btn_back}"), id="back", state=target_state)
+
     @staticmethod
     def main() -> Window:
         """Возвращает окно главного меню."""
@@ -44,7 +50,7 @@ class MenuWindows:
                     url=Const("https://aida.kaiten.site"),
                 ),
                 SwitchTo(Format("{btn_change_language}"), id="lang", state=MenuSG.language),
-                SwitchTo(Format("{btn_back}"), id="back", state=MenuSG.main),
+                MenuWindows._back_button(MenuSG.main),
             ),
             getter=MenuGetters.texts_data,
             state=MenuSG.settings,
@@ -59,7 +65,8 @@ class MenuWindows:
                 Button(Format("{btn_current_metrics}"), id="metrics", on_click=MenuHandlers.on_operation_action),
                 Button(Format("{btn_network_revenue}"), id="revenue", on_click=MenuHandlers.on_operation_action),
                 Button(Format("{btn_large_stocks}"), id="stock", on_click=MenuHandlers.on_operation_action),
-                SwitchTo(Format("{btn_back}"), id="back", state=MenuSG.main),
+                Button(Format("{btn_tracking}"), id="tracking", on_click=MenuHandlers.on_operation_action),
+                MenuWindows._back_button(MenuSG.main),
             ),
             getter=MenuGetters.texts_data,
             state=MenuSG.operation,
@@ -77,7 +84,7 @@ class MenuWindows:
                 SwitchTo(Format("{btn_staff}"), id="staff", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("staff", MenuSG.units)),
                 SwitchTo(Format("{btn_cancellations}"), id="refusal", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("refusal", MenuSG.units)),
                 SwitchTo(Format("{btn_defect}"), id="defect", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("defect", MenuSG.units)),
-                SwitchTo(Format("{btn_back}"), id="back", state=MenuSG.main),
+                MenuWindows._back_button(MenuSG.main),
             ),
             getter=MenuGetters.texts_data,
             state=MenuSG.notice,
@@ -95,7 +102,7 @@ class MenuWindows:
                 SwitchTo(Format("{btn_metrics}"), id="metrics", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("metrics", MenuSG.units)),
                 SwitchTo(Format("{btn_stock_balances}"), id="stock", state=MenuSG.stocks, on_click=MenuHandlers.set_type_stock),
                 SwitchTo(Format("{btn_writeoff}"), id="writeoff", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("writeoff", MenuSG.units)),
-                SwitchTo(Format("{btn_back}"), id="back", state=MenuSG.main),
+                MenuWindows._back_button(MenuSG.main),
             ),
             getter=MenuGetters.texts_data,
             state=MenuSG.reports,
@@ -180,7 +187,7 @@ class MenuWindows:
                     items="languages",
                     on_click=MenuHandlers.on_language_selected,
                 ),
-                SwitchTo(Format("{btn_back}"), id="back", state=MenuSG.settings),
+                MenuWindows._back_button(MenuSG.settings),
             ),
             getter=MenuGetters.language_data,
             state=MenuSG.language,

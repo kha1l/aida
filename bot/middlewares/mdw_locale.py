@@ -1,7 +1,7 @@
 from typing import Callable, Awaitable, Any, Dict
 from aiogram import BaseMiddleware
 from aiogram.types import Message, TelegramObject, CallbackQuery
-from services.i18n import setup_i18n
+from services.i18n import get_translator
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.requests.settings import get_user_settings
 
@@ -22,7 +22,7 @@ class I18nMiddleware(BaseMiddleware):
         # Пользователь Telegram (если нет — используем ru по умолчанию)
         tg_user = data.get("event_from_user")
         if not tg_user:
-            gettext_fn = setup_i18n(language="ru").gettext
+            gettext_fn = get_translator(language="ru")
             data["_"] = gettext_fn
             data["i18n_gettext"] = gettext_fn
             return await handler(event, data)
@@ -41,9 +41,9 @@ class I18nMiddleware(BaseMiddleware):
                     country = st.get("country")
                     break
         language = country if country is not None else "ru"
-        locales = setup_i18n(language=language)
-        data["_"] = locales.gettext
-        data["i18n_gettext"] = locales.gettext
+        gettext_fn = get_translator(language=language)
+        data["_"] = gettext_fn
+        data["i18n_gettext"] = gettext_fn
         data["settings"] = settings
 
         return await handler(event, data)

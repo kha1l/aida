@@ -6,6 +6,8 @@ from database.requests.users import get_user_context
 from loguru import logger
 from aiogram.fsm.context import FSMContext
 from bot.keyboards.info import new_account
+from bot.dialogs.texts import MenuTexts
+from services.i18n import get_translator, tr
 
 
 class DBSessionMiddleware(BaseMiddleware):
@@ -56,8 +58,7 @@ class UserDBMiddleware(BaseMiddleware):
 
         # Загружаем контекст пользователя (аккаунты, заведения и т.д.)
         ctx = await get_user_context(session, tg_user)
-        value = data.get("i18n_gettext") or data.get("_")
-        _ = value if callable(value) else (lambda s: s)
+        _ = get_translator(data)
         settings = data.get("settings")
 
         # Если пользователя нет в БД — показываем онбординг с кнопками
@@ -68,22 +69,12 @@ class UserDBMiddleware(BaseMiddleware):
             )
             if isinstance(event, Message):
                 return await event.answer(
-                    text=_(
-                        f'Привет, {tg_user.full_name}\n\n'
-                        f'Я - Aida. Помогаю удаленно управлять рестораном '
-                        f'или сетью ресторанов Dodo Brands и принимать '
-                        f'правильные управленческие решения. 🗃️'
-                    ),
+                    text=tr(_, MenuTexts.ONBOARDING_MESSAGE, user_name=tg_user.full_name),
                     reply_markup=new_account(_)
                 )
             if isinstance(event, CallbackQuery) and event.message:
                 return await event.message.answer(
-                    text=_(
-                        f'Привет, {tg_user.full_name}\n\n'
-                        f'Я - Aida. Помогаю удаленно управлять рестораном '
-                        f'или сетью ресторанов Dodo Brands и принимать '
-                        f'правильные управленческие решения. 🗃️'
-                    ),
+                    text=tr(_, MenuTexts.ONBOARDING_MESSAGE, user_name=tg_user.full_name),
                     reply_markup=new_account(_)
                 )
             return await handler(event, data)

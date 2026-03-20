@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
+
+if TYPE_CHECKING:
+    from config import Dagster as DagsterConfig
 
 
 LAUNCH_RUN_MUTATION = """
@@ -90,6 +93,18 @@ class DagsterClient:
         self.auth_header_value = (auth_header_value or "").strip() or None
         self.request_timeout_seconds = request_timeout_seconds
 
+    @classmethod
+    def from_settings(cls, settings: "DagsterConfig") -> "DagsterClient":
+        """Строит клиент из секции `config.dagster` без копипасты по коду бота."""
+        return cls(
+            graphql_url=settings.graphql_url,
+            repository_location_name=settings.repository_location_name,
+            repository_name=settings.repository_name,
+            auth_header_name=settings.auth_header_name,
+            auth_header_value=settings.auth_header_value,
+            request_timeout_seconds=settings.request_timeout_seconds,
+        )
+
     async def launch_job(
         self,
         job_name: str,
@@ -136,7 +151,59 @@ class DagsterClient:
         op_config: dict[str, Any],
         tags: dict[str, str] | None = None,
     ) -> DagsterRun:
-        # Dagster ждет config в формате runConfigData -> ops -> <op_name> -> config.
+        execution_params = self._build_execution_params(
+            repository_location_name=repository_location_name,
+            job_name=job_name,
+            op_name=op_name,
+            op_config=op_config,
+            tags=tags,
+        )
+        headers = self._build_headers()
+
+        data, response_status, raw_text = await self._post_graphql(
+            payload={
+                "query": LAUNCH_RUN_MUTATION,
+                "variables": {"executionParams": execution_params},
+            },
+            headers=headers,
+        )
+
+        if response_status >= 400:
+            raise DagsterLaunchError(
+                f"Dagster GraphQL ответил {response_status}: {raw_text[:300]}"
+            )
+
+        graphql_errors = data.get("errors") or []
+        if graphql_errors:
+            messages = [error.get("message", "Unknown GraphQL error") for error in graphql_errors]
+            raise DagsterLaunchError("; ".join(messages))
+
+        launch_result = ((data.get("data") or {}).get("launchRun")) or {}
+        typename = launch_result.get("__typename")
+        if typename == "LaunchRunSuccess":
+            run_data = launch_result.get("run") or {}
+            run_id = run_data.get("runId") or run_data.get("id")
+            if not run_id:
+                raise DagsterLaunchError("Dagster не вернул run id")
+            return DagsterRun(
+                id=run_data.get("id") or run_id,
+                run_id=run_id,
+                status=run_data.get("status"),
+            )
+
+        raise DagsterLaunchError(self._format_launch_error(launch_result))
+
+    def _build_execution_params(
+        self,
+        *,
+        repository_location_name: str,
+        job_name: str,
+        op_name: str,
+        op_config: dict[str, Any],
+        tags: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        """Собирает `executionParams` в формате, который ожидает Dagster GraphQL."""
+        # Dagster ждет config в формате `runConfigData -> ops -> <op_name> -> config`.
         execution_params: dict[str, Any] = {
             "selector": {
                 "repositoryLocationName": repository_location_name,
@@ -159,51 +226,33 @@ class DagsterClient:
                     if value is not None
                 ]
             }
+        return execution_params
 
+    def _build_headers(self) -> dict[str, str]:
+        """Готовит HTTP-заголовки для вызова Dagster GraphQL."""
         headers = {"Content-Type": "application/json"}
         if self.auth_header_name and self.auth_header_value:
             headers[self.auth_header_name] = self.auth_header_value
+        return headers
 
-        payload = {
-            "query": LAUNCH_RUN_MUTATION,
-            "variables": {"executionParams": execution_params},
-        }
-
+    async def _post_graphql(
+        self,
+        *,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+    ) -> tuple[dict[str, Any], int, str]:
+        """Выполняет один POST в Dagster GraphQL и возвращает JSON + статус + raw body."""
         timeout = aiohttp.ClientTimeout(total=self.request_timeout_seconds)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(self.graphql_url, json=payload, headers=headers) as response:
                 raw_text = await response.text()
                 try:
                     data = await response.json(content_type=None)
-                except Exception as exc:
+                except Exception:
                     raise DagsterLaunchError(
                         f"Dagster вернул не-JSON ответ ({response.status}): {raw_text[:300]}"
-                    ) from exc
-
-        if response.status >= 400:
-            raise DagsterLaunchError(
-                f"Dagster GraphQL ответил {response.status}: {raw_text[:300]}"
-            )
-
-        graphql_errors = data.get("errors") or []
-        if graphql_errors:
-            messages = [error.get("message", "Unknown GraphQL error") for error in graphql_errors]
-            raise DagsterLaunchError("; ".join(messages))
-
-        launch_result = ((data.get("data") or {}).get("launchRun")) or {}
-        typename = launch_result.get("__typename")
-        if typename == "LaunchRunSuccess":
-            run_data = launch_result.get("run") or {}
-            run_id = run_data.get("runId") or run_data.get("id")
-            if not run_id:
-                raise DagsterLaunchError("Dagster не вернул run id")
-            return DagsterRun(
-                id=run_data.get("id") or run_id,
-                run_id=run_id,
-                status=run_data.get("status"),
-            )
-
-        raise DagsterLaunchError(self._format_launch_error(launch_result))
+                    )
+        return data, response.status, raw_text
 
     @staticmethod
     def _format_launch_error(launch_result: dict[str, Any]) -> str:
