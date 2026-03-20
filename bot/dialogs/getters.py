@@ -85,8 +85,8 @@ class MenuGetters:
             "btn_stops_ings": _("\U0001F355 Ingredient stops"),
             "btn_stops_sector": _("\U0001F6A7 Sector stops"),
             "btn_apply": _("\U0001F44C Apply"),
-            "btn_select_all": _("☑️ Select all"),
-            "btn_clear_selection": _("▫️ Clear selection"),
+            "btn_select_all": _("\U0001F4CC Select all"),
+            "btn_clear_selection": _("\U0001F4CC selection"),
         }
 
     @staticmethod
