@@ -26,6 +26,21 @@ OPERATION_TITLE_MAP = {
 
 class MenuGetters:
     """Геттеры данных для окон меню (aiogram_dialog)."""
+
+    @staticmethod
+    def _current_topic_id(dialog_manager: DialogManager) -> int | None:
+        """Возвращает id текущего Telegram topic, если диалог открыт в топике."""
+        event = dialog_manager.event
+        direct_topic_id = getattr(event, "message_thread_id", None)
+        if direct_topic_id is not None:
+            return int(direct_topic_id)
+
+        message = getattr(event, "message", None)
+        nested_topic_id = getattr(message, "message_thread_id", None)
+        if nested_topic_id is not None:
+            return int(nested_topic_id)
+        return None
+
     @staticmethod
     def _get_context_state(dialog_manager: DialogManager, *, action: str):
         """Возвращает текущий контекст диалога и тихо логирует сбои UI-состояния."""
@@ -128,11 +143,19 @@ class MenuGetters:
                 try:
                     # При первом открытии экрана подтягиваем уже сохраненные подписки,
                     # чтобы пользователь видел текущее состояние без лишних кликов.
-                    orders = await get_orders_by_post(session, event_chat.id, post)
+                    orders = await get_orders_by_post(
+                        session,
+                        event_chat.id,
+                        post,
+                        MenuGetters._current_topic_id(dialog_manager),
+                    )
                     selected = []
                     for order in orders:
                         if order.uuids:
                             selected.extend(order.uuids)
+                    # Подсветка в UI должна отражать общее состояние чата/топика,
+                    # поэтому схлопываем дубли по uuid.
+                    selected = list(dict.fromkeys(selected))
                     ctx_state.widget_data["units"] = selected
                     subs_by_post = dialog_manager.dialog_data.setdefault("subs_by_post", {})
                     subs_by_post[post] = selected
@@ -170,7 +193,12 @@ class MenuGetters:
                 try:
                     # В stock-подписке дополнительно сохраняются категории,
                     # поэтому предзагружаем их отдельно от списка заведений.
-                    orders = await get_orders_by_post(session, event_chat.id, "stock")
+                    orders = await get_orders_by_post(
+                        session,
+                        event_chat.id,
+                        "stock",
+                        MenuGetters._current_topic_id(dialog_manager),
+                    )
                     selected = []
                     for order in orders:
                         if order.params:

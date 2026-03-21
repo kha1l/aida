@@ -10,6 +10,7 @@ from aiogram.fsm.storage.base import DefaultKeyBuilder
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram_dialog import setup_dialogs
 from services.rabbitmq import rabbit_listener
+from services.telegram_api import TelegramRetryMiddleware
 from bot.middlewares.mdw_logging import LoggingMiddleware
 from bot.middlewares.mdw_database import UserDBMiddleware, DBSessionMiddleware
 from bot.middlewares.mdw_locale import I18nMiddleware
@@ -35,6 +36,9 @@ async def main() -> None:
         token=cfg.bot.token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
+    # Все Telegram API-запросы прогоняем через retry/backoff, чтобы уменьшить
+    # шанс уткнуться в flood control при одновременной работе нескольких людей.
+    bot.session.middleware(TelegramRetryMiddleware())
 
     # Хранилище FSM в Redis (сейчас не используется, но готово к включению)
     storage = RedisStorage(

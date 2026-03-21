@@ -15,6 +15,7 @@ FALLBACK_LANGUAGE = "ru"
 RU_TRANSLATIONS: dict[str, str] = {
     "\U0001F44B Hello, {user_name}! \n\nI'm Aida. I help you manage a restaurant or a restaurant chain remotely for Dodo Brands and make the right management decisions.": "\U0001F44B Привет, {user_name}! \n\nЯ - Aida. Помогаю удаленно управлять рестораном или сетью ресторанов Dodo Brands и принимать правильные управленческие решения.",
     "Hello, {user_name}\n\nI'm Aida. I help you manage a restaurant or a restaurant chain remotely for Dodo Brands and make the right management decisions. \U0001F5C3\uFE0F": "Привет, {user_name}\n\nЯ - Aida. Помогаю удаленно управлять рестораном или сетью ресторанов Dodo Brands и принимать правильные управленческие решения. \U0001F5C3\uFE0F",
+    "Authorization required.\n\nTo continue, sign in to the Aida application and then send /start again.": "Требуется авторизация.\n\nЧтобы продолжить, войдите в приложение Aida и затем снова отправьте /start.",
     "App settings: \U0001F9BE": "Настройки приложения: \U0001F9BE",
     "Choose an action:": "Выбери интересующее действие:",
     "Choose a subscription:": "Выбери подписку:",

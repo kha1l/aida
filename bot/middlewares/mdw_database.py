@@ -1,6 +1,6 @@
 from typing import Callable, Awaitable, Dict, Any
 from aiogram import BaseMiddleware
-from aiogram.types import TelegramObject, Message, CallbackQuery
+from aiogram.types import TelegramObject, Message, CallbackQuery, Update
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from database.requests.users import get_user_context
 from loguru import logger
@@ -61,23 +61,15 @@ class UserDBMiddleware(BaseMiddleware):
         _ = get_translator(data)
         settings = data.get("settings")
 
-        # Если пользователя нет в БД — показываем онбординг с кнопками
+        # Если пользователя нет в БД — не пускаем дальше в /start и сразу
+        # показываем понятное сообщение с кнопкой авторизации.
         if not ctx:
             logger.warning(
                 "Пользователь не найден в базе данных",
                 telegram_id=tg_user.id,
             )
-            if isinstance(event, Message):
-                return await event.answer(
-                    text=tr(_, MenuTexts.ONBOARDING_MESSAGE, user_name=tg_user.full_name),
-                    reply_markup=new_account(_)
-                )
-            if isinstance(event, CallbackQuery) and event.message:
-                return await event.message.answer(
-                    text=tr(_, MenuTexts.ONBOARDING_MESSAGE, user_name=tg_user.full_name),
-                    reply_markup=new_account(_)
-                )
-            return await handler(event, data)
+            await _send_authorization_required(event, _, user_name=tg_user.full_name)
+            return None
 
         # Кладём контекст в FSM, чтобы не ходить в БД каждый раз
         logger.success(
@@ -85,9 +77,45 @@ class UserDBMiddleware(BaseMiddleware):
             telegram_id=tg_user.id,
             user_id=ctx.get("user_id"),
         )
+        # Контекст нужен не только для следующих апдейтов из FSM,
+        # но и прямо для текущего handler (`/start` и другие entry-point'ы).
+        data["ctx"] = ctx
+        if settings is not None:
+            data["settings"] = settings
         await state.update_data(
             ctx=ctx,
             settings=settings
         )
 
         return await handler(event, data)
+
+
+async def _send_authorization_required(
+    event: TelegramObject,
+    _: Callable[[str], str],
+    *,
+    user_name: str,
+) -> None:
+    """Отправляет сообщение о необходимости авторизации для message/callback/update."""
+    text = tr(_, MenuTexts.AUTH_REQUIRED_MESSAGE, user_name=user_name)
+    keyboard = new_account(_)
+
+    if isinstance(event, Message):
+        await event.answer(text=text, reply_markup=keyboard)
+        return
+
+    if isinstance(event, CallbackQuery):
+        target_message = event.message
+        if target_message:
+            await target_message.answer(text=text, reply_markup=keyboard)
+        else:
+            await event.answer()
+        return
+
+    if isinstance(event, Update):
+        if event.message:
+            await event.message.answer(text=text, reply_markup=keyboard)
+            return
+        if event.callback_query and event.callback_query.message:
+            await event.callback_query.message.answer(text=text, reply_markup=keyboard)
+            return

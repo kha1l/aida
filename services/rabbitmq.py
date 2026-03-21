@@ -11,7 +11,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.report_actions import build_report_keyboard
-from database.requests.settings import get_chat_language
+from database.requests.settings import get_chat_language, get_default_chat_language
 from services.i18n import get_translator
 
 
@@ -48,6 +48,8 @@ async def _resolve_chat_translator(
 
     async with session_maker() as session:
         language = await get_chat_language(session, chat_id)
+        if not language:
+            language = await get_default_chat_language(session, chat_id)
     return get_translator(language=language or "ru")
 
 

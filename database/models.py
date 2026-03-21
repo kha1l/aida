@@ -229,7 +229,7 @@ class Subscribe(Base):
 # -------------------
 
 class Settings(Base):
-    """Пользовательские настройки, включая язык для чата."""
+    """Пользовательские настройки чата из `special.settings`."""
     __tablename__ = "settings"
     __table_args__ = {"schema": "special"}
 
@@ -240,6 +240,7 @@ class Settings(Base):
         nullable=False
     )
     chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    application_id: Mapped[Optional[int]] = mapped_column(Integer)
 
     user = relationship("User", back_populates="settings")
 
@@ -252,7 +253,7 @@ class Orders(Base):
     """Подписки на отчёты/уведомления по чатам и аккаунтам."""
     __tablename__ = "orders"
     __table_args__ = (
-        UniqueConstraint("post", "account_id", "chat_id", name="uq_order_id_account_id"),
+        UniqueConstraint("post", "account_id", "chat_id", "topic_id", name="uq_order_id_account_id"),
         {"schema": "aida"},
     )
 
@@ -260,5 +261,6 @@ class Orders(Base):
     post: Mapped[str] = mapped_column(String(100))
     uuids: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    topic_id: Mapped[int | None] = mapped_column(BigInteger)
     account_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("special.accounts.id"))
     params: Mapped[str | None] = mapped_column(String(200))

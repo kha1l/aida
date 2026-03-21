@@ -22,6 +22,10 @@ class MenuTexts:
         "I'm Aida. I help you manage a restaurant or a restaurant chain "
         "remotely for Dodo Brands and make the right management decisions. 🗃️"
     )
+    AUTH_REQUIRED_MESSAGE = (
+        "Authorization required.\n\n"
+        "To continue, sign in to the Aida application and then send /start again."
+    )
 
     UPDATE_WAIT = "Collecting data \U0001F4C0\nPlease wait"
     UPDATE_DONE = "Your locations data has been updated. \U0001F4F1"

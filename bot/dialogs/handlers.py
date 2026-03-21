@@ -10,7 +10,7 @@ from bot.dialogs.data import POST, STOCK_ITEMS
 from bot.dialogs.helpers import DialogContext
 from bot.dialogs.states import MenuSG
 from bot.dialogs.texts import MenuTexts
-from database.requests.settings import set_chat_language
+from database.requests.settings import set_chat_language_for_user
 from database.requests.orders import get_orders_by_post, upsert_order, delete_order
 from datetime import datetime
 from config import load_config
@@ -52,6 +52,20 @@ OPERATION_JOB_CONFIGS = {
 
 class MenuHandlers:
     """Коллекция обработчиков для диалогов меню."""
+
+    @staticmethod
+    def _current_topic_id(manager: DialogManager) -> int | None:
+        """Возвращает id текущего Telegram topic для message/callback-события."""
+        event = manager.event
+        direct_topic_id = getattr(event, "message_thread_id", None)
+        if direct_topic_id is not None:
+            return int(direct_topic_id)
+
+        message = getattr(event, "message", None)
+        nested_topic_id = getattr(message, "message_thread_id", None)
+        if nested_topic_id is not None:
+            return int(nested_topic_id)
+        return None
 
     @staticmethod
     def _translator(manager: DialogManager):
@@ -195,9 +209,10 @@ class MenuHandlers:
 
         session = manager.middleware_data.get("session")
         event_chat = manager.middleware_data.get("event_chat")
+        topic_id = MenuHandlers._current_topic_id(manager)
         orders = []
         if session and event_chat:
-            orders = await get_orders_by_post(session, event_chat.id, post)
+            orders = await get_orders_by_post(session, event_chat.id, post, topic_id)
 
         subs_by_post = DialogContext.get_dialog_value(manager, "subs_by_post", {})
         prev_selected = set(subs_by_post.get(post, []))
@@ -206,43 +221,34 @@ class MenuHandlers:
         units_by_id = await DialogContext.get_units_by_id(manager)
         units_meta = manager.dialog_data.get("units_meta", {})
 
-        def _group_by_account(uuids: set[str]) -> dict[int | None, set[str]]:
-            """Группирует выбранные заведения по account_id."""
-            # Группировка заведений по account_id
-            grouped: dict[int | None, set[str]] = {}
-            for uuid in uuids:
-                meta = units_meta.get(uuid, {})
-                account_id = meta.get("account_id")
-                grouped.setdefault(account_id, set()).add(uuid)
-            return grouped
+        # Текущее состояние подписок из БД на уровне всего чата/топика.
+        existing_by_account: dict[int | None, set[str]] = {}
+        existing_owner_by_uuid: dict[str, int | None] = {}
+        for order in orders:
+            uuids = set(order.uuids or [])
+            existing_by_account.setdefault(order.account_id, set()).update(uuids)
+            for unit_uuid in uuids:
+                existing_owner_by_uuid.setdefault(unit_uuid, order.account_id)
 
-        # Текущее состояние подписок из БД
-        existing_by_account: dict[int | None, set[str]] = {
-            order.account_id: set(order.uuids or []) for order in orders
-        }
-        selected_by_account = _group_by_account(selected)
-        baseline_by_account = _group_by_account(prev_selected)
+        accessible_units = set(units_meta.keys())
+        existing_global = set(existing_owner_by_uuid.keys())
+        inaccessible_existing = existing_global - accessible_units
+        final_global = inaccessible_existing | selected
 
-        added_ids: set[str] = set()
-        removed_ids: set[str] = set()
+        added_ids = final_global - existing_global
+        removed_ids = existing_global - final_global
+
+        # Каждая точка в рамках одного чата/топика должна храниться только один раз.
+        # Если точка уже была подписана кем-то в этом чате, сохраняем прежний owner account_id.
+        # Для новых точек owner берем из текущего списка доступов пользователя.
         final_by_account: dict[int | None, set[str]] = {}
+        for unit_uuid in final_global:
+            owner_account_id = existing_owner_by_uuid.get(unit_uuid)
+            if owner_account_id is None:
+                owner_account_id = (units_meta.get(unit_uuid) or {}).get("account_id")
+            final_by_account.setdefault(owner_account_id, set()).add(unit_uuid)
 
-        accounts = (
-            set(existing_by_account.keys())
-            | set(selected_by_account.keys())
-            | set(baseline_by_account.keys())
-        )
-        for account_id in accounts:
-            existing_set = existing_by_account.get(account_id, set())
-            baseline_set = baseline_by_account.get(account_id, set())
-            selected_set = selected_by_account.get(account_id, set())
-
-            to_remove = baseline_set - selected_set
-            final_set = (existing_set - to_remove) | selected_set
-
-            added_ids.update(selected_set - existing_set)
-            removed_ids.update(existing_set - final_set)
-            final_by_account[account_id] = final_set
+        accounts = set(existing_by_account.keys()) | set(final_by_account.keys())
 
         add_units = [units_by_id.get(uuid, uuid) for uuid in added_ids]
         drop_units = [units_by_id.get(uuid, uuid) for uuid in removed_ids]
@@ -284,7 +290,7 @@ class MenuHandlers:
                 existing_set = existing_by_account.get(account_id, set())
                 if not final_set:
                     if existing_set:
-                        await delete_order(session, event_chat.id, post, account_id)
+                        await delete_order(session, event_chat.id, post, account_id, topic_id)
                     continue
                 if final_set != existing_set:
                     await upsert_order(
@@ -292,29 +298,24 @@ class MenuHandlers:
                         event_chat.id,
                         post,
                         account_id,
+                        topic_id,
                         sorted(final_set),
                         params,
                     )
 
     @staticmethod
     async def on_units_subscribe_all(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
-        """Выбирает все заведения и сразу применяет подписку."""
+        """Выбирает все заведения, но сохраняет изменения только по кнопке Apply."""
         units_meta = manager.dialog_data.get("units_meta", {})
         unit_ids = list(units_meta.keys())
         MenuHandlers._set_widget_state(manager, "units", unit_ids)
-        if str(manager.dialog_data.get("type") or "").startswith("operation_"):
-            await manager.switch_to(MenuSG.units)
-            return
-        await MenuHandlers.on_units_commit(callback, button, manager)
+        await manager.show()
 
     @staticmethod
     async def on_units_unsubscribe_all(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
-        """Снимает подписку со всех заведений и возвращает назад."""
+        """Снимает выбор со всех заведений, но пишет в БД только после Apply."""
         MenuHandlers._set_widget_state(manager, "units", [])
-        if str(manager.dialog_data.get("type") or "").startswith("operation_"):
-            await manager.switch_to(MenuSG.units)
-            return
-        await MenuHandlers.on_units_commit(callback, button, manager)
+        await manager.show()
 
     @staticmethod
     async def on_units_back(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
@@ -412,9 +413,10 @@ class MenuHandlers:
         """Сохраняет выбранный язык для текущего чата."""
         session = manager.middleware_data.get("session")
         event_chat = manager.middleware_data.get("event_chat")
-        if not session or not event_chat:
+        tg_user = manager.middleware_data.get("event_from_user")
+        if not session or not event_chat or not tg_user:
             return
-        await set_chat_language(session, event_chat.id, item_id)
+        await set_chat_language_for_user(session, tg_user, event_chat.id, item_id)
         _ = MenuHandlers._translator(manager)
         await callback.message.answer(_(MenuTexts.LANGUAGE_CHANGED))
         await manager.switch_to(MenuSG.settings)
