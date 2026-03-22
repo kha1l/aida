@@ -4,6 +4,13 @@ from aiogram.types import Update
 from loguru import logger
 
 
+def _is_start_message(update: Update) -> bool:
+    """Проверяет, что update содержит команду `/start`."""
+    if not update.message:
+        return False
+    return (update.message.text or "").strip().startswith("/start")
+
+
 class LoggingMiddleware(BaseMiddleware):
     """Логирует входящие обновления и ошибки обработки."""
     async def __call__(
@@ -20,15 +27,16 @@ class LoggingMiddleware(BaseMiddleware):
         try:
             update_type = event.event_type
             if event.message:
-                chat_id = event.message.chat.id
-                user_id = event.message.from_user.id
-                log = log.bind(
-                    update_type="message",
-                    chat_id=chat_id,
-                    user_id=user_id,
-                    message_id=event.message.message_id,
-                )
-                log.info("message", text=event.message.text)
+                if _is_start_message(event):
+                    chat_id = event.message.chat.id
+                    user_id = event.message.from_user.id
+                    log = log.bind(
+                        update_type="message",
+                        chat_id=chat_id,
+                        user_id=user_id,
+                        message_id=event.message.message_id,
+                    )
+                    log.info("message", text=event.message.text)
 
             elif event.callback_query:
                 chat_id = (

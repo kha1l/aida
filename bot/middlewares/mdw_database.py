@@ -10,6 +10,29 @@ from bot.dialogs.texts import MenuTexts
 from services.i18n import get_translator, tr
 
 
+def _is_start_message(event: TelegramObject) -> bool:
+    """Проверяет, что событие является сообщением с командой `/start`."""
+    if isinstance(event, Message):
+        text = (event.text or "").strip()
+        return text.startswith("/start")
+    if isinstance(event, Update) and event.message:
+        text = (event.message.text or "").strip()
+        return text.startswith("/start")
+    return False
+
+
+def _is_callback_event(event: TelegramObject) -> bool:
+    """Проверяет, что событие пришло от нажатия inline-кнопки."""
+    if isinstance(event, CallbackQuery):
+        return True
+    return isinstance(event, Update) and event.callback_query is not None
+
+
+def _needs_user_context(event: TelegramObject) -> bool:
+    """Оставляем загрузку контекста только для `/start` и callback-событий."""
+    return _is_start_message(event) or _is_callback_event(event)
+
+
 class DBSessionMiddleware(BaseMiddleware):
     """Создаёт AsyncSession и кладёт его в data для всех хендлеров."""
     def __init__(self, session_maker: async_sessionmaker[AsyncSession]):
@@ -37,6 +60,8 @@ class UserDBMiddleware(BaseMiddleware):
         data: Dict[str, Any]
     ) -> Any:
         """Заполняет контекст пользователя или показывает онбординг."""
+        if not _needs_user_context(event):
+            return await handler(event, data)
 
         session: AsyncSession = data["session"]
         state: FSMContext = data.get("state")
