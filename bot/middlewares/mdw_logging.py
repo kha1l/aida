@@ -11,6 +11,50 @@ def _is_start_message(update: Update) -> bool:
     return (update.message.text or "").strip().startswith("/start")
 
 
+def _extract_log_context(event: Update) -> dict[str, Any]:
+    """Собирает общий контекст апдейта для всех логов внутри обработки."""
+    context: dict[str, Any] = {
+        "update_type": event.event_type,
+        "chat_id": None,
+        "user_id": None,
+        "telegram_id": None,
+        "topic_id": None,
+        "message_id": None,
+        "callback_data": None,
+    }
+
+    if event.message:
+        from_user = event.message.from_user
+        context.update(
+            {
+                "update_type": "message",
+                "chat_id": event.message.chat.id,
+                "user_id": from_user.id if from_user else None,
+                "telegram_id": from_user.id if from_user else None,
+                "topic_id": getattr(event.message, "message_thread_id", None),
+                "message_id": event.message.message_id,
+            }
+        )
+        return context
+
+    if event.callback_query:
+        message = event.callback_query.message
+        from_user = event.callback_query.from_user
+        context.update(
+            {
+                "update_type": "callback_query",
+                "chat_id": message.chat.id if message else None,
+                "user_id": from_user.id if from_user else None,
+                "telegram_id": from_user.id if from_user else None,
+                "topic_id": getattr(message, "message_thread_id", None) if message else None,
+                "message_id": message.message_id if message else None,
+                "callback_data": event.callback_query.data,
+            }
+        )
+
+    return context
+
+
 class LoggingMiddleware(BaseMiddleware):
     """Логирует входящие обновления и ошибки обработки."""
     async def __call__(
@@ -20,45 +64,22 @@ class LoggingMiddleware(BaseMiddleware):
         data: Dict[str, Any],
     ) -> Any:
         """Оборачивает обработку update логированием контекста."""
-
-        # Логируем тип апдейта и контекст (чат, пользователь, сообщение)
-        log = logger
+        context = _extract_log_context(event)
+        log = logger.bind(**context)
 
         try:
-            update_type = event.event_type
-            if event.message:
-                if _is_start_message(event):
-                    chat_id = event.message.chat.id
-                    user_id = event.message.from_user.id
-                    log = log.bind(
-                        update_type="message",
-                        chat_id=chat_id,
-                        user_id=user_id,
-                        message_id=event.message.message_id,
-                    )
-                    log.info("message", text=event.message.text)
+            with logger.contextualize(**context):
+                if event.message:
+                    if _is_start_message(event):
+                        log.info("message", text=event.message.text)
+                elif event.callback_query:
+                    # Callback'и специально не дублируем отдельной info-строкой,
+                    # но их контекст уже попадет во все внутренние логи хендлеров.
+                    pass
+                else:
+                    log.info("update")
 
-            elif event.callback_query:
-                chat_id = (
-                    event.callback_query.message.chat.id
-                    if event.callback_query.message
-                    else None
-                )
-                user_id = event.callback_query.from_user.id
-
-                log = log.bind(
-                    update_type="callback_query",
-                    chat_id=chat_id,
-                    user_id=user_id,
-                    callback_data=event.callback_query.data,
-                )
-                # Skip logging callbacks to reduce noise
-
-            else:
-                log = log.bind(update_type=update_type)
-                log.info("update")
-
-            return await handler(event, data)
+                return await handler(event, data)
 
         except Exception:
             log.exception("failed")

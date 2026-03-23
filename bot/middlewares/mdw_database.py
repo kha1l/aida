@@ -33,6 +33,37 @@ def _needs_user_context(event: TelegramObject) -> bool:
     return _is_start_message(event) or _is_callback_event(event)
 
 
+def _event_chat_id(event: TelegramObject, data: Dict[str, Any]) -> int | None:
+    """Возвращает chat_id из middleware data или самого события."""
+    event_chat = data.get("event_chat")
+    if event_chat is not None:
+        return getattr(event_chat, "id", None)
+    if isinstance(event, Message):
+        return event.chat.id
+    if isinstance(event, CallbackQuery) and event.message:
+        return event.message.chat.id
+    if isinstance(event, Update):
+        if event.message:
+            return event.message.chat.id
+        if event.callback_query and event.callback_query.message:
+            return event.callback_query.message.chat.id
+    return None
+
+
+def _event_topic_id(event: TelegramObject) -> int | None:
+    """Возвращает message_thread_id для сообщений из топиков."""
+    if isinstance(event, Message):
+        return getattr(event, "message_thread_id", None)
+    if isinstance(event, CallbackQuery) and event.message:
+        return getattr(event.message, "message_thread_id", None)
+    if isinstance(event, Update):
+        if event.message:
+            return getattr(event.message, "message_thread_id", None)
+        if event.callback_query and event.callback_query.message:
+            return getattr(event.callback_query.message, "message_thread_id", None)
+    return None
+
+
 class DBSessionMiddleware(BaseMiddleware):
     """Создаёт AsyncSession и кладёт его в data для всех хендлеров."""
     def __init__(self, session_maker: async_sessionmaker[AsyncSession]):
@@ -89,19 +120,22 @@ class UserDBMiddleware(BaseMiddleware):
         # Если пользователя нет в БД — не пускаем дальше в /start и сразу
         # показываем понятное сообщение с кнопкой авторизации.
         if not ctx:
-            logger.warning(
-                "Пользователь не найден в базе данных",
+            logger.bind(
+                chat_id=_event_chat_id(event, data),
+                user_id=tg_user.id,
                 telegram_id=tg_user.id,
-            )
+                topic_id=_event_topic_id(event),
+            ).warning("Пользователь не найден в базе данных")
             await _send_authorization_required(event, _, user_name=tg_user.full_name)
             return None
 
         # Кладём контекст в FSM, чтобы не ходить в БД каждый раз
-        logger.success(
-            "Пользователь успешно загружен из базы данных",
+        logger.bind(
+            chat_id=_event_chat_id(event, data),
+            user_id=ctx.get("user_id") or tg_user.id,
             telegram_id=tg_user.id,
-            user_id=ctx.get("user_id"),
-        )
+            topic_id=_event_topic_id(event),
+        ).success("Пользователь успешно загружен из базы данных")
         # Контекст нужен не только для следующих апдейтов из FSM,
         # но и прямо для текущего handler (`/start` и другие entry-point'ы).
         data["ctx"] = ctx

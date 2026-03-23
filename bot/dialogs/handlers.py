@@ -1,9 +1,10 @@
 """Обработчики действий в меню подписок и отчетов."""
+import contextlib
 import logging
 from typing import Callable, Awaitable, cast
 
 from aiogram.types import CallbackQuery
-from aiogram_dialog import DialogManager
+from aiogram_dialog import DialogManager, StartMode
 from aiogram_dialog.widgets.kbd import Button, Select, Multiselect
 
 from bot.dialogs.data import POST, STOCK_ITEMS
@@ -120,6 +121,22 @@ class MenuHandlers:
         """Создает Dagster GraphQL-клиент из текущего env-конфига."""
         config = load_config()
         return DagsterClient.from_settings(config.dagster)
+
+    @staticmethod
+    async def _return_to_main_menu(callback: CallbackQuery, manager: DialogManager) -> None:
+        """Закрывает текущее диалоговое сообщение и открывает главное меню заново.
+
+        Такой переход гарантирует, что клавиатура главного меню окажется последним
+        сообщением в чате, а старое окно выбора заведений не останется висеть ниже.
+        """
+        MenuHandlers._reset_units_selection(manager)
+        MenuHandlers._set_dialog_type(manager, "notice", post=None)
+
+        with contextlib.suppress(Exception):
+            if callback.message:
+                await callback.message.delete()
+
+        await manager.start(MenuSG.main, mode=StartMode.RESET_STACK)
 
     @staticmethod
     async def set_type_notice(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
@@ -303,6 +320,8 @@ class MenuHandlers:
                         params,
                     )
 
+        await MenuHandlers._return_to_main_menu(callback, manager)
+
     @staticmethod
     async def on_units_subscribe_all(callback: CallbackQuery, button: Button, manager: DialogManager) -> None:
         """Выбирает все заведения, но сохраняет изменения только по кнопке Apply."""
@@ -401,7 +420,7 @@ class MenuHandlers:
             len(selected_units),
         )
         await callback.answer(tr(_, config_entry["success_popup"]))
-        await manager.switch_to(MenuSG.operation)
+        await MenuHandlers._return_to_main_menu(callback, manager)
 
     @staticmethod
     async def on_language_selected(

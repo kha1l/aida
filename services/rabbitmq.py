@@ -98,10 +98,7 @@ async def rabbit_listener(
                     queue=queue_name,
                     post=payload.post,
                     unit_uuid=payload.unit_uuid,
-                ).info(
-                    "Message sent successfully",
-                    text=payload.text[:200]
-                )
+                ).info("Message delivered")
 
             except Exception:
                 logger.bind(
