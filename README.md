@@ -1,7 +1,5 @@
 # aida3
 
-`aida3` — Telegram-бот на `aiogram 3`, который управляет подписками, запускает manual jobs в `aida_functions` через Dagster GraphQL и отправляет готовые payload из RabbitMQ в Telegram.
-
 ## Что умеет бот
 
 - открывать диалоговое меню по заведениям и отчетам;
