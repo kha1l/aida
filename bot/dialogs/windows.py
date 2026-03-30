@@ -102,6 +102,7 @@ class MenuWindows:
                 SwitchTo(Format("{btn_metrics}"), id="metrics", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("metrics", MenuSG.units)),
                 SwitchTo(Format("{btn_stock_balances}"), id="stock", state=MenuSG.stocks, on_click=MenuHandlers.set_type_stock),
                 SwitchTo(Format("{btn_writeoff}"), id="writeoff", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("writeoff", MenuSG.units)),
+                SwitchTo(Format("{btn_ratings}"), id="ratings", state=MenuSG.units, on_click=MenuHandlers.make_post_handler("ratings", MenuSG.units)),
                 MenuWindows._back_button(MenuSG.main),
             ),
             getter=MenuGetters.texts_data,

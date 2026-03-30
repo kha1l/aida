@@ -3,6 +3,7 @@ import contextlib
 import logging
 from typing import Callable, Awaitable, cast
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 from aiogram_dialog import DialogManager, StartMode
 from aiogram_dialog.widgets.kbd import Button, Select, Multiselect
@@ -20,6 +21,27 @@ from services.i18n import get_translator, tr
 
 
 logger = logging.getLogger(__name__)
+
+
+def _is_expired_callback_error(exc: TelegramBadRequest) -> bool:
+    text = str(exc).lower()
+    return "query is too old" in text or "query id is invalid" in text
+
+
+async def _safe_callback_answer(
+    callback: CallbackQuery,
+    text: str | None = None,
+    *,
+    show_alert: bool = False,
+) -> None:
+    """Отвечает на callback, но не валит flow, если query уже протух."""
+    try:
+        await callback.answer(text, show_alert=show_alert)
+    except TelegramBadRequest as exc:
+        if _is_expired_callback_error(exc):
+            logger.info("Skip expired callback answer: %s", exc)
+            return
+        raise
 
 
 # Конфигурация manual-job'ов, которые запускаются из раздела "Оперативные данные".
@@ -347,7 +369,7 @@ class MenuHandlers:
         _ = MenuHandlers._translator(manager)
         action = getattr(button, "widget_id", None) or getattr(button, "id", None)
         if not action:
-            await callback.answer(tr(_, "Unable to determine action"), show_alert=True)
+            await _safe_callback_answer(callback, tr(_, "Unable to determine action"), show_alert=True)
             return
         MenuHandlers._set_dialog_type(manager, f"operation_{action}")
         MenuHandlers._reset_units_selection(manager)
@@ -363,18 +385,18 @@ class MenuHandlers:
         message = callback.message
         _ = MenuHandlers._translator(manager)
         if message is None:
-            await callback.answer(tr(_, "Unable to determine message"), show_alert=True)
+            await _safe_callback_answer(callback, tr(_, "Unable to determine message"), show_alert=True)
             return
 
         if not selected_unit_ids:
-            await callback.answer(tr(_, "Choose at least one location"), show_alert=True)
+            await _safe_callback_answer(callback, tr(_, "Choose at least one location"), show_alert=True)
             return
 
         dialog_type = str(manager.dialog_data.get("type") or "")
         action = dialog_type.removeprefix("operation_")
         config_entry = OPERATION_JOB_CONFIGS.get(action)
         if config_entry is None:
-            await callback.answer(tr(_, "Unknown live data report type"), show_alert=True)
+            await _safe_callback_answer(callback, tr(_, "Unknown live data report type"), show_alert=True)
             return
 
         client = MenuHandlers._build_dagster_client()
@@ -409,7 +431,7 @@ class MenuHandlers:
             )
         except DagsterLaunchError as exc:
             logger.warning("Failed to launch operation job %s: %s", action, exc)
-            await callback.answer(tr(_, config_entry["error_popup"]), show_alert=True)
+            await _safe_callback_answer(callback, tr(_, config_entry["error_popup"]), show_alert=True)
             return
 
         logger.info(
@@ -419,7 +441,7 @@ class MenuHandlers:
             message.chat.id,
             len(selected_units),
         )
-        await callback.answer(tr(_, config_entry["success_popup"]))
+        await _safe_callback_answer(callback, tr(_, config_entry["success_popup"]))
         await MenuHandlers._return_to_main_menu(callback, manager)
 
     @staticmethod

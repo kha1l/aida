@@ -2,7 +2,7 @@ from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import Update
 from loguru import logger
-from aiogram_dialog.api.exceptions import OutdatedIntent
+from aiogram_dialog.api.exceptions import OutdatedIntent, UnknownIntent
 
 
 def _is_start_message(update: Update) -> bool:
@@ -60,8 +60,9 @@ class LoggingMiddleware(BaseMiddleware):
 
             return await handler(event, data)
 
-        except OutdatedIntent:
-            # Старые dialog intent'ы отдельно обрабатываются в global error handler.
+        except (OutdatedIntent, UnknownIntent):
+            # Старые dialog intent'ы и потерянный context отдельно обрабатываются
+            # в global error handler, поэтому не дублируем traceback здесь.
             raise
         except Exception:
             log.exception("failed")

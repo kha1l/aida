@@ -12,7 +12,7 @@ from aiogram.exceptions import (
     TelegramRetryAfter,
 )
 from aiogram.types import ErrorEvent
-from aiogram_dialog.api.exceptions import OutdatedIntent
+from aiogram_dialog.api.exceptions import OutdatedIntent, UnknownIntent
 from loguru import logger
 
 
@@ -73,10 +73,11 @@ async def telegram_error_handler(event: ErrorEvent) -> bool:
         log.error("Telegram API error", error=str(exc), exc_type=type(exc).__name__)
         return True
 
-    # Пользователь нажал на старую inline-кнопку из уже обновленного dialog stack.
-    # Это штатная ситуация для aiogram_dialog, поэтому не шумим traceback'ом.
-    if isinstance(exc, OutdatedIntent):
-        log.warning("Outdated dialog intent", error=str(exc), exc_type=type(exc).__name__)
+    # Пользователь нажал на старую inline-кнопку из уже обновленного dialog stack
+    # или контекст диалога уже исчез из storage после рестарта/TTL.
+    # Для aiogram_dialog это штатный UX-кейс, поэтому отвечаем мягко и не шумим traceback'ом.
+    if isinstance(exc, (OutdatedIntent, UnknownIntent)):
+        log.warning("Stale dialog intent", error=str(exc), exc_type=type(exc).__name__)
         callback = event.update.callback_query if event.update else None
         if callback is not None:
             try:

@@ -1,5 +1,6 @@
 """Геттеры данных для `aiogram_dialog`-окон бота."""
 
+import html
 from typing import Any
 
 import logging
@@ -82,6 +83,7 @@ class MenuGetters:
             "btn_unsubscribe_all": _("\U0001F4CC Unsubscribe all"),
             "btn_current_metrics": _("\U0001F4CA Current metrics"),
             "btn_network_revenue": _("\U0001F4B9 Network revenue"),
+            "btn_ratings": _("\U0001F4C8 Ratings RKO/RS"),
             "btn_large_stocks": _("\U0001F69A Large stock balances"),
             "btn_tracking": _("🛰 Tracking"),
             "btn_birthdays": _("\U0001F389 Birthdays"),
@@ -103,6 +105,22 @@ class MenuGetters:
             "btn_select_all": _("\U0001F4CC Select all"),
             "btn_clear_selection": _("\U0001F4CC Clear selection"),
         }
+
+    @staticmethod
+    async def _settings_title(dialog_manager: DialogManager) -> str:
+        """Собирает текст экрана настроек с привязанными аккаунтами пользователя."""
+        _ = MenuGetters._translator(dialog_manager)
+        ctx = await DialogContext.load_ctx(dialog_manager)
+        accounts = [
+            html.escape(str(account.get("name") or "").strip())
+            for account in ctx.accounts
+            if isinstance(account, dict) and str(account.get("name") or "").strip()
+        ]
+        if not accounts:
+            return _(MenuTexts.SETTINGS_TITLE)
+
+        account_lines = "\n".join(f"    {name}" for name in accounts)
+        return f"{_('Your accounts:')}\n{account_lines}\n{_(MenuTexts.SETTINGS_TITLE)}"
 
     @staticmethod
     async def main_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
@@ -221,7 +239,9 @@ class MenuGetters:
     @staticmethod
     async def texts_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
         """Возвращает общий набор локализованных текстов."""
-        return MenuGetters._texts(dialog_manager)
+        texts = MenuGetters._texts(dialog_manager)
+        texts["title_settings"] = await MenuGetters._settings_title(dialog_manager)
+        return texts
 
     @staticmethod
     async def language_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from loguru import logger
@@ -25,6 +26,27 @@ from services.i18n import tr
 
 
 router = Router()
+def _is_expired_callback_error(exc: TelegramBadRequest) -> bool:
+    text = str(exc).lower()
+    return "query is too old" in text or "query id is invalid" in text
+
+
+async def _safe_callback_answer(
+    callback: CallbackQuery,
+    text: str | None = None,
+    *,
+    show_alert: bool = False,
+) -> None:
+    """Отвечает на callback без падения на истекшем query id."""
+    try:
+        await callback.answer(text, show_alert=show_alert)
+    except TelegramBadRequest as exc:
+        if _is_expired_callback_error(exc):
+            logger.info("Skip expired callback answer", error=str(exc))
+            return
+        raise
+
+
 DIRECT_REPORT_ACTIONS = (
     "certificates",
     "later",
@@ -174,7 +196,7 @@ async def _launch_manual_report(
     """Запускает Dagster job для одного заведения из inline-кнопки."""
     message = callback.message
     if message is None:
-        await callback.answer(tr(translate, "Unable to determine message"), show_alert=True)
+        await _safe_callback_answer(callback, tr(translate, "Unable to determine message"), show_alert=True)
         return
 
     config = config or load_config()
@@ -191,7 +213,7 @@ async def _launch_manual_report(
         ).warning(
             f"{report_config.log_label} launch skipped: unit not found in user context"
         )
-        await callback.answer(tr(translate, "Unable to find this location in your access list"), show_alert=True)
+        await _safe_callback_answer(callback, tr(translate, "Unable to find this location in your access list"), show_alert=True)
         return
 
     account_id = unit.get("account_id")
@@ -201,7 +223,7 @@ async def _launch_manual_report(
             chat_id=message.chat.id,
             user_id=callback.from_user.id,
         ).warning(f"{report_config.log_label} launch skipped: account_id missing")
-        await callback.answer(tr(translate, "Unable to determine account for this location"), show_alert=True)
+        await _safe_callback_answer(callback, tr(translate, "Unable to determine account for this location"), show_alert=True)
         return
 
     topic_id = getattr(message, "message_thread_id", None)
@@ -251,7 +273,8 @@ async def _launch_manual_report(
             f"Failed to launch {report_config.log_label.lower()} job",
             error=str(exc),
         )
-        await callback.answer(
+        await _safe_callback_answer(
+            callback,
             tr(translate, report_config.launch_error_popup),
             show_alert=True,
         )
@@ -268,7 +291,7 @@ async def _launch_manual_report(
         run_status=run.status,
     ).info(f"{report_config.log_label} job launched")
 
-    await callback.answer(tr(translate, report_config.success_popup))
+    await _safe_callback_answer(callback, tr(translate, report_config.success_popup))
 
 
 async def _show_threshold_keyboard(
@@ -279,7 +302,7 @@ async def _show_threshold_keyboard(
     """Показывает inline-клавиатуру выбора порога отчета."""
     message = callback.message
     if message is None:
-        await callback.answer(tr(translate, "Unable to determine message"), show_alert=True)
+        await _safe_callback_answer(callback, tr(translate, "Unable to determine message"), show_alert=True)
         return
 
     builder, success_text, error_text, error_log = THRESHOLD_KEYBOARD_CONFIGS[callback_data.action]
@@ -292,14 +315,14 @@ async def _show_threshold_keyboard(
                 translate=translate,
             )
         )
-        await callback.answer(tr(translate, success_text))
+        await _safe_callback_answer(callback, tr(translate, success_text))
     except Exception:
         logger.bind(
             unit_uuid=callback_data.unit_uuid,
             chat_id=message.chat.id,
             user_id=callback.from_user.id,
         ).exception(error_log)
-        await callback.answer(tr(translate, error_text), show_alert=True)
+        await _safe_callback_answer(callback, tr(translate, error_text), show_alert=True)
 
 
 @router.callback_query(ReportActionCallback.filter(F.action.in_(DIRECT_REPORT_ACTIONS)))
@@ -438,16 +461,16 @@ async def hide_report_message(
     """Удаляет сообщение с отчетом по кнопке `Скрыть отчет`."""
     message = callback.message
     if message is None:
-        await callback.answer(tr(_, "Unable to find report message"), show_alert=True)
+        await _safe_callback_answer(callback, tr(_, "Unable to find report message"), show_alert=True)
         return
 
     try:
         await message.delete()
-        await callback.answer()
+        await _safe_callback_answer(callback)
     except Exception:
         logger.bind(
             chat_id=message.chat.id,
             message_id=message.message_id,
             user_id=callback.from_user.id,
         ).exception("Failed to hide report message")
-        await callback.answer(tr(_, "Unable to hide report"), show_alert=True)
+        await _safe_callback_answer(callback, tr(_, "Unable to hide report"), show_alert=True)
