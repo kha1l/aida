@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from config import Config, load_config
 from aiogram import Bot, Dispatcher
@@ -32,9 +33,11 @@ async def main() -> None:
     cfg: Config = load_config()  # Читаем конфигурацию из переменных окружения
 
     # Инициализация бота и парсинга HTML
+    bot_session = AiohttpSession(proxy=cfg.bot.proxy_url) if cfg.bot.proxy_url else None
     bot = Bot(
         token=cfg.bot.token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        session=bot_session,
     )
     # Все Telegram API-запросы прогоняем через retry/backoff, чтобы уменьшить
     # шанс уткнуться в flood control при одновременной работе нескольких людей.

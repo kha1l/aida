@@ -8,6 +8,7 @@ from environs import Env
 class Bot:
     """Настройки Telegram-бота."""
     token: str
+    proxy_url: str | None = None
 
 
 @dataclass
@@ -58,8 +59,9 @@ def load_config(path: str | None = None) -> Config:
     """Собирает конфигурацию приложения из переменных окружения."""
     env = Env()
     env.read_env(path)
+    telegram_proxy_url = env.str("TELEGRAM_PROXY_URL", "").strip() or env.str("BOT_PROXY_URL", "").strip() or None
     return Config(
-        bot=Bot(token=env.str("TOKEN")),
+        bot=Bot(token=env.str("TOKEN"), proxy_url=telegram_proxy_url),
         dbase=Database(
             name=env.str("DBASE_NAME"),
             user=env.str("DBASE_USER"),
