@@ -183,6 +183,12 @@ def _build_dagster_client(config: Config) -> DagsterClient:
     return DagsterClient.from_settings(config.dagster)
 
 
+def _supports_webapp_buttons(callback: CallbackQuery) -> bool:
+    """Telegram разрешает InlineKeyboardButton.web_app только в личном чате с ботом."""
+    message = callback.message
+    return bool(message and getattr(message.chat, "type", None) == "private")
+
+
 async def _restore_report_keyboard(
     callback: CallbackQuery,
     *,
@@ -432,8 +438,10 @@ async def _show_report_webapp_button(
         return
 
     try:
+        use_webapp = _supports_webapp_buttons(callback)
         reply_markup = build_report_webapp_keyboard(
             url=url,
+            use_webapp=use_webapp,
             translate=translate,
         )
         original_keyboard = build_report_keyboard(
@@ -446,7 +454,10 @@ async def _show_report_webapp_button(
         await message.edit_reply_markup(
             reply_markup=reply_markup
         )
-        await _safe_callback_answer(callback, url=url)
+        if use_webapp:
+            await _safe_callback_answer(callback, url=url)
+        else:
+            await _safe_callback_answer(callback, tr(translate, "Open the report using the new button"))
     except Exception:
         logger.bind(
             unit_uuid=callback_data.unit_uuid,
@@ -492,6 +503,7 @@ async def _show_webapp_threshold_keyboard(
         await message.edit_reply_markup(
             reply_markup=threshold_config.keyboard_builder(
                 urls_by_minutes=urls_by_minutes,
+                use_webapp=_supports_webapp_buttons(callback),
                 translate=translate,
             )
         )

@@ -160,12 +160,14 @@ def build_waiting_threshold_keyboard(
 def build_waiting_webapp_threshold_keyboard(
     *,
     urls_by_minutes: dict[int, str],
+    use_webapp: bool = True,
     translate: Translator | None = None,
 ) -> InlineKeyboardMarkup:
     """Строит клавиатуру порогов ожидания, где каждая кнопка открывает web-отчет."""
     return _build_webapp_threshold_keyboard(
         minutes_values=WAITING_THRESHOLD_VALUES_MINUTES,
         urls_by_minutes=urls_by_minutes,
+        use_webapp=use_webapp,
         translate=translate,
     )
 
@@ -173,12 +175,14 @@ def build_waiting_webapp_threshold_keyboard(
 def build_drink_webapp_threshold_keyboard(
     *,
     urls_by_minutes: dict[int, str],
+    use_webapp: bool = True,
     translate: Translator | None = None,
 ) -> InlineKeyboardMarkup:
     """Строит клавиатуру порогов напитков, где каждая кнопка открывает web-отчет."""
     return _build_webapp_threshold_keyboard(
         minutes_values=DRINK_THRESHOLD_VALUES_MINUTES,
         urls_by_minutes=urls_by_minutes,
+        use_webapp=use_webapp,
         translate=translate,
     )
 
@@ -187,6 +191,7 @@ def _build_webapp_threshold_keyboard(
     *,
     minutes_values: tuple[int, ...],
     urls_by_minutes: dict[int, str],
+    use_webapp: bool = True,
     translate: Translator | None = None,
 ) -> InlineKeyboardMarkup:
     """Строит компактную клавиатуру выбора порога с WebApp-ссылками."""
@@ -199,9 +204,10 @@ def _build_webapp_threshold_keyboard(
         if not url:
             continue
         current_row.append(
-            InlineKeyboardButton(
+            _report_link_button(
                 text=translate("{minutes} min").format(minutes=minutes),
-                web_app=WebAppInfo(url=url),
+                url=url,
+                use_webapp=use_webapp,
             )
         )
         if index in {3, len(minutes_values)}:
@@ -219,6 +225,7 @@ def build_report_webapp_keyboard(
     *,
     url: str,
     text: str = "Open web report",
+    use_webapp: bool = True,
     translate: Translator | None = None,
 ) -> InlineKeyboardMarkup:
     """Строит одну WebApp-кнопку для открытия готовящегося отчета."""
@@ -226,13 +233,21 @@ def build_report_webapp_keyboard(
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
+                _report_link_button(
                     text=translate(text),
-                    web_app=WebAppInfo(url=url),
+                    url=url,
+                    use_webapp=use_webapp,
                 )
             ]
         ]
     )
+
+
+def _report_link_button(*, text: str, url: str, use_webapp: bool) -> InlineKeyboardButton:
+    """Создает WebApp-кнопку в личке и обычную URL-кнопку там, где WebApp запрещен."""
+    if use_webapp:
+        return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))
+    return InlineKeyboardButton(text=text, url=url)
 
 
 def build_drink_threshold_keyboard(

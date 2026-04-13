@@ -128,6 +128,7 @@ RU_TRANSLATIONS: dict[str, str] = {
     "Unable to show waiting threshold": "Не удалось показать порог ожидания",
     "Unable to open web report": "Не удалось открыть web-отчет",
     "Open web report": "Открыть web-отчет",
+    "Open the report using the new button": "Откройте отчет по новой кнопке",
     "Courier waiting report now opens in WebApp. Press Courier waiting again.": "Отчет ожиданий теперь открывается в WebApp. Нажмите «Ожидания курьеров» еще раз.",
     "Slow drink report now opens in WebApp. Press Slow drinks again.": "Отчет по долгим напиткам теперь открывается в WebApp. Нажмите «Долгие напитки» еще раз.",
     "Choose time threshold": "Выберите порог времени",
