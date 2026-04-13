@@ -12,17 +12,21 @@ from aiogram.types import CallbackQuery
 from loguru import logger
 
 from bot.keyboards.report_actions import (
+    DRINK_THRESHOLD_VALUES_MINUTES,
     DrinkThresholdCallback,
     HIDE_REPORT_CALLBACK,
     ReportActionCallback,
+    WAITING_THRESHOLD_VALUES_MINUTES,
     WaitingThresholdCallback,
-    build_drink_threshold_keyboard,
+    build_drink_webapp_threshold_keyboard,
+    build_report_webapp_keyboard,
     build_report_keyboard,
-    build_waiting_threshold_keyboard,
+    build_waiting_webapp_threshold_keyboard,
 )
 from config import Config, load_config
 from services.dagster import DagsterClient, DagsterLaunchError
 from services.i18n import tr
+from services.webapp_links import ReportLinkParams, build_report_url, new_request_id
 
 
 router = Router()
@@ -36,10 +40,11 @@ async def _safe_callback_answer(
     text: str | None = None,
     *,
     show_alert: bool = False,
+    url: str | None = None,
 ) -> None:
     """Отвечает на callback без падения на истекшем query id."""
     try:
-        await callback.answer(text, show_alert=show_alert)
+        await callback.answer(text, show_alert=show_alert, url=url)
     except TelegramBadRequest as exc:
         if _is_expired_callback_error(exc):
             logger.info("Skip expired callback answer", error=str(exc))
@@ -55,6 +60,17 @@ DIRECT_REPORT_ACTIONS = (
     "later_rest",
     "assembly_rest",
 )
+COURIER_WEBAPP_REPORT_ACTIONS = (
+    "certificates",
+    "later",
+    "sectors",
+    "longers",
+)
+STATIONARY_WEBAPP_REPORT_ACTIONS = (
+    "later_rest",
+    "assembly_rest",
+)
+WEBAPP_REPORT_ACTIONS = COURIER_WEBAPP_REPORT_ACTIONS + STATIONARY_WEBAPP_REPORT_ACTIONS
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +80,16 @@ class ManualReportLaunchConfig:
     success_popup: str
     launch_error_popup: str
     log_label: str
+
+
+@dataclass(frozen=True, slots=True)
+class WebAppThresholdConfig:
+    report_type: str
+    minutes_values: tuple[int, ...]
+    keyboard_builder: Callable[..., Any]
+    success_text: str
+    error_text: str
+    error_log: str
 
 
 MANUAL_REPORT_CONFIGS = {
@@ -124,18 +150,22 @@ MANUAL_REPORT_CONFIGS = {
         log_label="DrinkRest",
     ),
 }
-THRESHOLD_KEYBOARD_CONFIGS = {
-    "waiting": (
-        build_waiting_threshold_keyboard,
-        "Choose waiting threshold",
-        "Unable to show waiting threshold",
-        "Failed to show waiting threshold keyboard",
+WEBAPP_THRESHOLD_CONFIGS = {
+    "waiting": WebAppThresholdConfig(
+        report_type="waiting",
+        minutes_values=WAITING_THRESHOLD_VALUES_MINUTES,
+        keyboard_builder=build_waiting_webapp_threshold_keyboard,
+        success_text="Choose waiting threshold",
+        error_text="Unable to show waiting threshold",
+        error_log="Failed to show waiting webapp threshold keyboard",
     ),
-    "drink_rest": (
-        build_drink_threshold_keyboard,
-        "Choose time threshold",
-        "Unable to show time threshold",
-        "Failed to show drink threshold keyboard",
+    "drink_rest": WebAppThresholdConfig(
+        report_type="drink_rest",
+        minutes_values=DRINK_THRESHOLD_VALUES_MINUTES,
+        keyboard_builder=build_drink_webapp_threshold_keyboard,
+        success_text="Choose time threshold",
+        error_text="Unable to show time threshold",
+        error_log="Failed to show drink webapp threshold keyboard",
     ),
 }
 
@@ -297,6 +327,8 @@ async def _launch_manual_report(
 async def _show_threshold_keyboard(
     callback: CallbackQuery,
     callback_data: ReportActionCallback,
+    state: FSMContext | None = None,
+    config: Config | None = None,
     translate: Callable[[str], str] = lambda message: message,
 ) -> None:
     """Показывает inline-клавиатуру выбора порога отчета."""
@@ -305,24 +337,173 @@ async def _show_threshold_keyboard(
         await _safe_callback_answer(callback, tr(translate, "Unable to determine message"), show_alert=True)
         return
 
-    builder, success_text, error_text, error_log = THRESHOLD_KEYBOARD_CONFIGS[callback_data.action]
+    threshold_config = WEBAPP_THRESHOLD_CONFIGS[callback_data.action]
+    await _show_webapp_threshold_keyboard(
+        callback,
+        callback_data,
+        threshold_config=threshold_config,
+        state=state,
+        config=config,
+        translate=translate,
+    )
+
+
+async def _build_report_webapp_url_for_callback(
+    callback: CallbackQuery,
+    callback_data: ReportActionCallback,
+    *,
+    report_type: str,
+    state: FSMContext | None,
+    config: Config | None,
+    threshold_minutes: int | None = None,
+    translate: Callable[[str], str] = lambda message: message,
+) -> str | None:
+    """Проверяет доступы и собирает signed WebApp URL для отчета."""
+    message = callback.message
+    if message is None:
+        await _safe_callback_answer(callback, tr(translate, "Unable to determine message"), show_alert=True)
+        return None
+
+    if state is None:
+        await _safe_callback_answer(callback, tr(translate, "Unable to open web report"), show_alert=True)
+        return None
+
+    config = config or load_config()
+    if not config.webapp.report_url or not config.webapp.signing_secret:
+        logger.bind(
+            chat_id=message.chat.id,
+            user_id=callback.from_user.id,
+            report_type=report_type,
+        ).warning("Report webapp URL skipped: webapp config is missing")
+        await _safe_callback_answer(callback, tr(translate, "Unable to open web report"), show_alert=True)
+        return None
+
+    state_data = await state.get_data()
+    ctx = state_data.get("ctx") or {}
+    unit = _find_unit(ctx, callback_data.unit_uuid)
+    if not unit:
+        await _safe_callback_answer(callback, tr(translate, "Unable to find this location in your access list"), show_alert=True)
+        return None
+
+    account_id = unit.get("account_id")
+    if not account_id:
+        await _safe_callback_answer(callback, tr(translate, "Unable to determine account for this location"), show_alert=True)
+        return None
+
+    message_date = message.date.isoformat() if getattr(message, "date", None) is not None else ""
+    return build_report_url(
+        base_url=config.webapp.report_url,
+        signing_secret=config.webapp.signing_secret,
+        ttl_seconds=config.webapp.link_ttl_seconds,
+        params=ReportLinkParams(
+            request_id=new_request_id(),
+            report_type=report_type,
+            unit_uuid=callback_data.unit_uuid,
+            account_id=int(account_id),
+            message_date=message_date,
+            threshold_minutes=threshold_minutes,
+        ),
+    )
+
+
+async def _show_report_webapp_button(
+    callback: CallbackQuery,
+    callback_data: ReportActionCallback,
+    *,
+    state: FSMContext,
+    config: Config | None = None,
+    translate: Callable[[str], str] = lambda message: message,
+) -> None:
+    """Заменяет inline-кнопки отчета на WebApp-кнопку конкретного отчета."""
+    message = callback.message
+    if message is None:
+        await _safe_callback_answer(callback, tr(translate, "Unable to determine message"), show_alert=True)
+        return
+
+    url = await _build_report_webapp_url_for_callback(
+        callback,
+        callback_data,
+        report_type=callback_data.action,
+        state=state,
+        config=config,
+        translate=translate,
+    )
+    if not url:
+        return
+
     try:
-        # Меняем только клавиатуру сообщения: сам текст отчета/карточки трогать не нужно.
-        await message.edit_reply_markup(
-            reply_markup=builder(
-                callback_data.post,
-                callback_data.unit_uuid,
-                translate=translate,
-            )
+        reply_markup = build_report_webapp_keyboard(
+            url=url,
+            translate=translate,
         )
-        await _safe_callback_answer(callback, tr(translate, success_text))
+        original_keyboard = build_report_keyboard(
+            callback_data.post,
+            callback_data.unit_uuid,
+            translate=translate,
+        )
+        if original_keyboard is not None:
+            reply_markup.inline_keyboard.extend(original_keyboard.inline_keyboard)
+        await message.edit_reply_markup(
+            reply_markup=reply_markup
+        )
+        await _safe_callback_answer(callback, url=url)
     except Exception:
         logger.bind(
             unit_uuid=callback_data.unit_uuid,
             chat_id=message.chat.id,
             user_id=callback.from_user.id,
-        ).exception(error_log)
-        await _safe_callback_answer(callback, tr(translate, error_text), show_alert=True)
+            report_type=callback_data.action,
+        ).exception("Failed to show report webapp button")
+        await _safe_callback_answer(callback, tr(translate, "Unable to open web report"), show_alert=True)
+
+
+async def _show_webapp_threshold_keyboard(
+    callback: CallbackQuery,
+    callback_data: ReportActionCallback,
+    *,
+    threshold_config: WebAppThresholdConfig,
+    state: FSMContext | None,
+    config: Config | None = None,
+    translate: Callable[[str], str] = lambda message: message,
+) -> None:
+    """Показывает пороги отчета как URL-кнопки WebApp."""
+    message = callback.message
+    if message is None:
+        await _safe_callback_answer(callback, tr(translate, "Unable to determine message"), show_alert=True)
+        return
+
+    urls_by_minutes: dict[int, str] = {}
+    for minutes in threshold_config.minutes_values:
+        url = await _build_report_webapp_url_for_callback(
+            callback,
+            callback_data,
+            report_type=threshold_config.report_type,
+            state=state,
+            config=config,
+            threshold_minutes=minutes,
+            translate=translate,
+        )
+        if url:
+            urls_by_minutes[minutes] = url
+        elif not urls_by_minutes:
+            return
+
+    try:
+        await message.edit_reply_markup(
+            reply_markup=threshold_config.keyboard_builder(
+                urls_by_minutes=urls_by_minutes,
+                translate=translate,
+            )
+        )
+        await _safe_callback_answer(callback, tr(translate, threshold_config.success_text))
+    except Exception:
+        logger.bind(
+            unit_uuid=callback_data.unit_uuid,
+            chat_id=message.chat.id,
+            user_id=callback.from_user.id,
+            report_type=threshold_config.report_type,
+        ).exception(threshold_config.error_log)
+        await _safe_callback_answer(callback, tr(translate, threshold_config.error_text), show_alert=True)
 
 
 @router.callback_query(ReportActionCallback.filter(F.action.in_(DIRECT_REPORT_ACTIONS)))
@@ -334,6 +515,16 @@ async def launch_direct_report(
     _: Callable[[str], str] = lambda message: message,
 ) -> None:
     """Запускает manual job без промежуточного выбора порога."""
+    if callback_data.action in WEBAPP_REPORT_ACTIONS:
+        await _show_report_webapp_button(
+            callback,
+            callback_data,
+            state=state,
+            config=config,
+            translate=_,
+        )
+        return
+
     await _launch_manual_report(
         callback,
         unit_uuid=callback_data.unit_uuid,
@@ -346,53 +537,16 @@ async def launch_direct_report(
     )
 
 
-@router.callback_query(ReportActionCallback.filter(F.action.in_(tuple(THRESHOLD_KEYBOARD_CONFIGS))))
+@router.callback_query(ReportActionCallback.filter(F.action.in_(tuple(WEBAPP_THRESHOLD_CONFIGS))))
 async def show_threshold_keyboard(
     callback: CallbackQuery,
     callback_data: ReportActionCallback,
+    state: FSMContext,
+    config: Config | None = None,
     _: Callable[[str], str] = lambda message: message,
 ) -> None:
     """Показывает inline-клавиатуру выбора порога."""
-    await _show_threshold_keyboard(callback, callback_data, translate=_)
-
-
-async def _launch_threshold_report(
-    callback: CallbackQuery,
-    *,
-    post: str,
-    unit_uuid: str,
-    action: str,
-    report_config: ManualReportLaunchConfig,
-    state: FSMContext,
-    threshold_minutes: int,
-    extra_op_config: dict[str, Any],
-    extra_tags: dict[str, str],
-    restore_error_log: str,
-    config: Config | None = None,
-    translate: Callable[[str], str] = lambda message: message,
-) -> None:
-    try:
-        await _launch_manual_report(
-            callback,
-            unit_uuid=unit_uuid,
-            action=action,
-            post=post,
-            state=state,
-            report_config=report_config,
-            extra_op_config=extra_op_config,
-            extra_tags=extra_tags,
-            config=config,
-            translate=translate,
-        )
-    finally:
-        await _restore_report_keyboard(
-            callback,
-            post=post,
-            unit_uuid=unit_uuid,
-            log_label=restore_error_log,
-            extra_log_context={"threshold_minutes": threshold_minutes},
-            translate=translate,
-        )
+    await _show_threshold_keyboard(callback, callback_data, state=state, config=config, translate=_)
 
 
 @router.callback_query(WaitingThresholdCallback.filter())
@@ -403,23 +557,18 @@ async def launch_waiting_report(
     config: Config | None = None,
     _: Callable[[str], str] = lambda message: message,
 ) -> None:
-    """Запускает `waiting_job` для выбранного порога ожидания."""
-    await _launch_threshold_report(
+    """Старые callback-кнопки ожиданий больше не запускают RabbitMQ-flow."""
+    await _safe_callback_answer(
+        callback,
+        tr(_, "Courier waiting report now opens in WebApp. Press Courier waiting again."),
+        show_alert=True,
+    )
+    await _restore_report_keyboard(
         callback,
         post=callback_data.post,
         unit_uuid=callback_data.unit_uuid,
-        action="waiting",
-        report_config=MANUAL_REPORT_CONFIGS["waiting"],
-        state=state,
-        threshold_minutes=int(callback_data.minutes),
-        extra_op_config={
-            "wait_threshold_seconds": int(callback_data.minutes) * 60,
-        },
-        extra_tags={
-            "wait_threshold_minutes": str(callback_data.minutes),
-        },
-        restore_error_log="Failed to restore report keyboard after waiting selection",
-        config=config,
+        log_label="Failed to restore report keyboard after stale waiting callback",
+        extra_log_context={"threshold_minutes": int(callback_data.minutes)},
         translate=_,
     )
 
@@ -432,23 +581,18 @@ async def launch_drink_rest_report(
     config: Config | None = None,
     _: Callable[[str], str] = lambda message: message,
 ) -> None:
-    """Запускает `drink_rest_job` для выбранного порога времени."""
-    await _launch_threshold_report(
+    """Старые callback-кнопки напитков больше не запускают RabbitMQ-flow."""
+    await _safe_callback_answer(
+        callback,
+        tr(_, "Slow drink report now opens in WebApp. Press Slow drinks again."),
+        show_alert=True,
+    )
+    await _restore_report_keyboard(
         callback,
         post=callback_data.post,
         unit_uuid=callback_data.unit_uuid,
-        action="drink_rest",
-        report_config=MANUAL_REPORT_CONFIGS["drink_rest"],
-        state=state,
-        threshold_minutes=int(callback_data.minutes),
-        extra_op_config={
-            "drink_threshold_seconds": int(callback_data.minutes) * 60,
-        },
-        extra_tags={
-            "drink_threshold_minutes": str(callback_data.minutes),
-        },
-        restore_error_log="Failed to restore report keyboard after drink selection",
-        config=config,
+        log_label="Failed to restore report keyboard after stale drink callback",
+        extra_log_context={"threshold_minutes": int(callback_data.minutes)},
         translate=_,
     )
 

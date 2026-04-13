@@ -46,6 +46,14 @@ class Dagster:
 
 
 @dataclass
+class WebApp:
+    """Параметры web-отчетов, открываемых из Telegram-кнопок."""
+    report_url: str | None
+    signing_secret: str | None
+    link_ttl_seconds: int
+
+
+@dataclass
 class Config:
     """Корневая конфигурация приложения."""
     bot: Bot
@@ -53,6 +61,7 @@ class Config:
     redis: Redis
     rabbit: Rabbit
     dagster: Dagster
+    webapp: WebApp
 
 
 def load_config(path: str | None = None) -> Config:
@@ -83,5 +92,10 @@ def load_config(path: str | None = None) -> Config:
             auth_header_name=env.str("DAGSTER_AUTH_HEADER_NAME", "").strip() or None,
             auth_header_value=env.str("DAGSTER_AUTH_HEADER_VALUE", "").strip() or None,
             request_timeout_seconds=env.int("DAGSTER_REQUEST_TIMEOUT_SECONDS", 15),
+        ),
+        webapp=WebApp(
+            report_url=env.str("AIDA_REPORT_WEBAPP_URL", "").strip() or None,
+            signing_secret=env.str("AIDA_WEBAPP_SIGNING_SECRET", "").strip() or None,
+            link_ttl_seconds=env.int("AIDA_WEBAPP_LINK_TTL_SECONDS", 3600),
         ),
     )

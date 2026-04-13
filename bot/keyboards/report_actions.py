@@ -3,7 +3,7 @@
 from typing import Callable
 
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 
 HIDE_REPORT_CALLBACK = "hide"
@@ -154,6 +154,84 @@ def build_waiting_threshold_keyboard(
         minutes_values=WAITING_THRESHOLD_VALUES_MINUTES,
         callback_factory=WaitingThresholdCallback,
         translate=translate,
+    )
+
+
+def build_waiting_webapp_threshold_keyboard(
+    *,
+    urls_by_minutes: dict[int, str],
+    translate: Translator | None = None,
+) -> InlineKeyboardMarkup:
+    """Строит клавиатуру порогов ожидания, где каждая кнопка открывает web-отчет."""
+    return _build_webapp_threshold_keyboard(
+        minutes_values=WAITING_THRESHOLD_VALUES_MINUTES,
+        urls_by_minutes=urls_by_minutes,
+        translate=translate,
+    )
+
+
+def build_drink_webapp_threshold_keyboard(
+    *,
+    urls_by_minutes: dict[int, str],
+    translate: Translator | None = None,
+) -> InlineKeyboardMarkup:
+    """Строит клавиатуру порогов напитков, где каждая кнопка открывает web-отчет."""
+    return _build_webapp_threshold_keyboard(
+        minutes_values=DRINK_THRESHOLD_VALUES_MINUTES,
+        urls_by_minutes=urls_by_minutes,
+        translate=translate,
+    )
+
+
+def _build_webapp_threshold_keyboard(
+    *,
+    minutes_values: tuple[int, ...],
+    urls_by_minutes: dict[int, str],
+    translate: Translator | None = None,
+) -> InlineKeyboardMarkup:
+    """Строит компактную клавиатуру выбора порога с WebApp-ссылками."""
+    translate = translate or (lambda message: message)
+    rows: list[list[InlineKeyboardButton]] = []
+    current_row: list[InlineKeyboardButton] = []
+
+    for index, minutes in enumerate(minutes_values, start=1):
+        url = urls_by_minutes.get(minutes)
+        if not url:
+            continue
+        current_row.append(
+            InlineKeyboardButton(
+                text=translate("{minutes} min").format(minutes=minutes),
+                web_app=WebAppInfo(url=url),
+            )
+        )
+        if index in {3, len(minutes_values)}:
+            if current_row:
+                rows.append(current_row)
+            current_row = []
+
+    if current_row:
+        rows.append(current_row)
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def build_report_webapp_keyboard(
+    *,
+    url: str,
+    text: str = "Open web report",
+    translate: Translator | None = None,
+) -> InlineKeyboardMarkup:
+    """Строит одну WebApp-кнопку для открытия готовящегося отчета."""
+    translate = translate or (lambda message: message)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=translate(text),
+                    web_app=WebAppInfo(url=url),
+                )
+            ]
+        ]
     )
 
 
