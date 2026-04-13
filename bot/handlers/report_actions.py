@@ -18,9 +18,11 @@ from bot.keyboards.report_actions import (
     ReportActionCallback,
     WAITING_THRESHOLD_VALUES_MINUTES,
     WaitingThresholdCallback,
+    build_drink_threshold_keyboard,
     build_drink_webapp_threshold_keyboard,
     build_report_webapp_keyboard,
     build_report_keyboard,
+    build_waiting_threshold_keyboard,
     build_waiting_webapp_threshold_keyboard,
 )
 from config import Config, load_config
@@ -86,6 +88,14 @@ class ManualReportLaunchConfig:
 class WebAppThresholdConfig:
     report_type: str
     minutes_values: tuple[int, ...]
+    keyboard_builder: Callable[..., Any]
+    success_text: str
+    error_text: str
+    error_log: str
+
+
+@dataclass(frozen=True, slots=True)
+class CallbackThresholdConfig:
     keyboard_builder: Callable[..., Any]
     success_text: str
     error_text: str
@@ -166,6 +176,20 @@ WEBAPP_THRESHOLD_CONFIGS = {
         success_text="Choose time threshold",
         error_text="Unable to show time threshold",
         error_log="Failed to show drink webapp threshold keyboard",
+    ),
+}
+CALLBACK_THRESHOLD_CONFIGS = {
+    "waiting": CallbackThresholdConfig(
+        keyboard_builder=build_waiting_threshold_keyboard,
+        success_text="Choose waiting threshold",
+        error_text="Unable to show waiting threshold",
+        error_log="Failed to show waiting threshold keyboard",
+    ),
+    "drink_rest": CallbackThresholdConfig(
+        keyboard_builder=build_drink_threshold_keyboard,
+        success_text="Choose time threshold",
+        error_text="Unable to show time threshold",
+        error_log="Failed to show drink threshold keyboard",
     ),
 }
 
@@ -341,6 +365,27 @@ async def _show_threshold_keyboard(
     message = callback.message
     if message is None:
         await _safe_callback_answer(callback, tr(translate, "Unable to determine message"), show_alert=True)
+        return
+
+    if not _supports_webapp_buttons(callback):
+        threshold_config = CALLBACK_THRESHOLD_CONFIGS[callback_data.action]
+        try:
+            await message.edit_reply_markup(
+                reply_markup=threshold_config.keyboard_builder(
+                    callback_data.post,
+                    callback_data.unit_uuid,
+                    translate=translate,
+                )
+            )
+            await _safe_callback_answer(callback, tr(translate, threshold_config.success_text))
+        except Exception:
+            logger.bind(
+                unit_uuid=callback_data.unit_uuid,
+                chat_id=message.chat.id,
+                user_id=callback.from_user.id,
+                report_type=callback_data.action,
+            ).exception(threshold_config.error_log)
+            await _safe_callback_answer(callback, tr(translate, threshold_config.error_text), show_alert=True)
         return
 
     threshold_config = WEBAPP_THRESHOLD_CONFIGS[callback_data.action]
@@ -527,7 +572,7 @@ async def launch_direct_report(
     _: Callable[[str], str] = lambda message: message,
 ) -> None:
     """Запускает manual job без промежуточного выбора порога."""
-    if callback_data.action in WEBAPP_REPORT_ACTIONS:
+    if callback_data.action in WEBAPP_REPORT_ACTIONS and _supports_webapp_buttons(callback):
         await _show_report_webapp_button(
             callback,
             callback_data,
@@ -561,6 +606,45 @@ async def show_threshold_keyboard(
     await _show_threshold_keyboard(callback, callback_data, state=state, config=config, translate=_)
 
 
+async def _launch_threshold_report(
+    callback: CallbackQuery,
+    *,
+    post: str,
+    unit_uuid: str,
+    action: str,
+    report_config: ManualReportLaunchConfig,
+    state: FSMContext,
+    threshold_minutes: int,
+    extra_op_config: dict[str, Any],
+    extra_tags: dict[str, str],
+    restore_error_log: str,
+    config: Config | None = None,
+    translate: Callable[[str], str] = lambda message: message,
+) -> None:
+    try:
+        await _launch_manual_report(
+            callback,
+            unit_uuid=unit_uuid,
+            action=action,
+            post=post,
+            state=state,
+            report_config=report_config,
+            extra_op_config=extra_op_config,
+            extra_tags=extra_tags,
+            config=config,
+            translate=translate,
+        )
+    finally:
+        await _restore_report_keyboard(
+            callback,
+            post=post,
+            unit_uuid=unit_uuid,
+            log_label=restore_error_log,
+            extra_log_context={"threshold_minutes": threshold_minutes},
+            translate=translate,
+        )
+
+
 @router.callback_query(WaitingThresholdCallback.filter())
 async def launch_waiting_report(
     callback: CallbackQuery,
@@ -569,18 +653,23 @@ async def launch_waiting_report(
     config: Config | None = None,
     _: Callable[[str], str] = lambda message: message,
 ) -> None:
-    """Старые callback-кнопки ожиданий больше не запускают RabbitMQ-flow."""
-    await _safe_callback_answer(
-        callback,
-        tr(_, "Courier waiting report now opens in WebApp. Press Courier waiting again."),
-        show_alert=True,
-    )
-    await _restore_report_keyboard(
+    """Запускает `waiting_job` для выбранного порога ожидания."""
+    await _launch_threshold_report(
         callback,
         post=callback_data.post,
         unit_uuid=callback_data.unit_uuid,
-        log_label="Failed to restore report keyboard after stale waiting callback",
-        extra_log_context={"threshold_minutes": int(callback_data.minutes)},
+        action="waiting",
+        report_config=MANUAL_REPORT_CONFIGS["waiting"],
+        state=state,
+        threshold_minutes=int(callback_data.minutes),
+        extra_op_config={
+            "wait_threshold_seconds": int(callback_data.minutes) * 60,
+        },
+        extra_tags={
+            "wait_threshold_minutes": str(callback_data.minutes),
+        },
+        restore_error_log="Failed to restore report keyboard after waiting selection",
+        config=config,
         translate=_,
     )
 
@@ -593,18 +682,23 @@ async def launch_drink_rest_report(
     config: Config | None = None,
     _: Callable[[str], str] = lambda message: message,
 ) -> None:
-    """Старые callback-кнопки напитков больше не запускают RabbitMQ-flow."""
-    await _safe_callback_answer(
-        callback,
-        tr(_, "Slow drink report now opens in WebApp. Press Slow drinks again."),
-        show_alert=True,
-    )
-    await _restore_report_keyboard(
+    """Запускает `drink_rest_job` для выбранного порога времени."""
+    await _launch_threshold_report(
         callback,
         post=callback_data.post,
         unit_uuid=callback_data.unit_uuid,
-        log_label="Failed to restore report keyboard after stale drink callback",
-        extra_log_context={"threshold_minutes": int(callback_data.minutes)},
+        action="drink_rest",
+        report_config=MANUAL_REPORT_CONFIGS["drink_rest"],
+        state=state,
+        threshold_minutes=int(callback_data.minutes),
+        extra_op_config={
+            "drink_threshold_seconds": int(callback_data.minutes) * 60,
+        },
+        extra_tags={
+            "drink_threshold_minutes": str(callback_data.minutes),
+        },
+        restore_error_log="Failed to restore report keyboard after drink selection",
+        config=config,
         translate=_,
     )
 
