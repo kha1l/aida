@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import base64
 import time
 import uuid
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ class ReportLinkParams:
 def build_report_url(
     *,
     base_url: str | None,
+    direct_link_url: str | None = None,
     signing_secret: str | None,
     params: ReportLinkParams,
     ttl_seconds: int = 3600,
@@ -43,8 +45,14 @@ def build_report_url(
         payload["threshold_minutes"] = str(params.threshold_minutes)
 
     payload["sig"] = sign_payload(payload, signing_secret)
+    query = urlencode(payload)
+    if direct_link_url:
+        startapp = encode_startapp_payload(query)
+        separator = "&" if "?" in direct_link_url else "?"
+        return f"{direct_link_url.rstrip()}{separator}startapp={startapp}"
+
     separator = "&" if "?" in base_url else "?"
-    return f"{base_url.rstrip()}{separator}{urlencode(payload)}"
+    return f"{base_url.rstrip()}{separator}{query}"
 
 
 def new_request_id() -> str:
@@ -60,6 +68,11 @@ def sign_payload(payload: dict[str, str], signing_secret: str) -> str:
         canonical.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
+
+
+def encode_startapp_payload(query: str) -> str:
+    """Кодирует query в формат, разрешенный Telegram `startapp`."""
+    return base64.urlsafe_b64encode(query.encode("utf-8")).decode("ascii").rstrip("=")
 
 
 def _canonical_payload(payload: dict[str, str]) -> str:

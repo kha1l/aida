@@ -49,6 +49,7 @@ class Dagster:
 class WebApp:
     """Параметры web-отчетов, открываемых из Telegram-кнопок."""
     report_url: str | None
+    direct_link_url: str | None
     signing_secret: str | None
     link_ttl_seconds: int
 
@@ -95,6 +96,7 @@ def load_config(path: str | None = None) -> Config:
         ),
         webapp=WebApp(
             report_url=env.str("AIDA_REPORT_WEBAPP_URL", "").strip() or None,
+            direct_link_url=env.str("AIDA_REPORT_WEBAPP_DIRECT_URL", "").strip().rstrip("/") or None,
             signing_secret=env.str("AIDA_WEBAPP_SIGNING_SECRET", "").strip() or None,
             link_ttl_seconds=env.int("AIDA_WEBAPP_LINK_TTL_SECONDS", 3600),
         ),

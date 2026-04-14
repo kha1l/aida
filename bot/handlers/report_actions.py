@@ -367,7 +367,8 @@ async def _show_threshold_keyboard(
         await _safe_callback_answer(callback, tr(translate, "Unable to determine message"), show_alert=True)
         return
 
-    if not _supports_webapp_buttons(callback):
+    use_webapp_flow = bool(config and config.webapp.direct_link_url) or _supports_webapp_buttons(callback)
+    if not use_webapp_flow:
         threshold_config = CALLBACK_THRESHOLD_CONFIGS[callback_data.action]
         try:
             await message.edit_reply_markup(
@@ -444,6 +445,7 @@ async def _build_report_webapp_url_for_callback(
     message_date = message.date.isoformat() if getattr(message, "date", None) is not None else ""
     return build_report_url(
         base_url=config.webapp.report_url,
+        direct_link_url=config.webapp.direct_link_url,
         signing_secret=config.webapp.signing_secret,
         ttl_seconds=config.webapp.link_ttl_seconds,
         params=ReportLinkParams(
@@ -483,7 +485,11 @@ async def _show_report_webapp_button(
         return
 
     try:
-        use_webapp = _supports_webapp_buttons(callback)
+        use_webapp = bool(
+            config
+            and not config.webapp.direct_link_url
+            and _supports_webapp_buttons(callback)
+        )
         reply_markup = build_report_webapp_keyboard(
             url=url,
             use_webapp=use_webapp,
@@ -548,7 +554,11 @@ async def _show_webapp_threshold_keyboard(
         await message.edit_reply_markup(
             reply_markup=threshold_config.keyboard_builder(
                 urls_by_minutes=urls_by_minutes,
-                use_webapp=_supports_webapp_buttons(callback),
+                use_webapp=bool(
+                    config
+                    and not config.webapp.direct_link_url
+                    and _supports_webapp_buttons(callback)
+                ),
                 translate=translate,
             )
         )
@@ -572,7 +582,7 @@ async def launch_direct_report(
     _: Callable[[str], str] = lambda message: message,
 ) -> None:
     """Запускает manual job без промежуточного выбора порога."""
-    if callback_data.action in WEBAPP_REPORT_ACTIONS and _supports_webapp_buttons(callback):
+    if callback_data.action in WEBAPP_REPORT_ACTIONS:
         await _show_report_webapp_button(
             callback,
             callback_data,

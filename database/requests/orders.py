@@ -21,6 +21,30 @@ async def get_orders_by_post(
     return list(result.scalars().all())
 
 
+async def get_order_account_id_for_unit(
+    session: AsyncSession,
+    *,
+    chat_id: int,
+    post: str,
+    unit_uuid: str,
+    topic_id: int | None = None,
+) -> int | None:
+    """Находит account_id подписки, через которую пришел отчет по заведению."""
+    stmt = (
+        select(Orders.account_id)
+        .where(
+            Orders.chat_id == chat_id,
+            Orders.post == post,
+            Orders.uuids.any(unit_uuid),
+            Orders.account_id.is_not(None),
+        )
+        .limit(1)
+    )
+    stmt = stmt.where(Orders.topic_id == topic_id) if topic_id is not None else stmt.where(Orders.topic_id.is_(None))
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def upsert_order(
     session: AsyncSession,
     chat_id: int,

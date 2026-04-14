@@ -85,8 +85,12 @@ def _action_button(
     post: str,
     action: str,
     unit_uuid: str,
+    webapp_url: str | None = None,
     translate: Translator,
 ) -> InlineKeyboardButton:
+    if webapp_url:
+        return InlineKeyboardButton(text=translate(text), url=webapp_url)
+
     return InlineKeyboardButton(
         text=translate(text),
         callback_data=ReportActionCallback(
@@ -102,11 +106,22 @@ def _build_action_keyboard(
     post: str,
     unit_uuid: str,
     buttons: tuple[tuple[str, str], ...],
+    webapp_urls_by_action: dict[str, str] | None = None,
     translate: Translator,
 ) -> InlineKeyboardMarkup:
+    webapp_urls_by_action = webapp_urls_by_action or {}
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [_action_button(text=text, post=post, action=action, unit_uuid=unit_uuid, translate=translate)]
+            [
+                _action_button(
+                    text=text,
+                    post=post,
+                    action=action,
+                    unit_uuid=unit_uuid,
+                    webapp_url=webapp_urls_by_action.get(action),
+                    translate=translate,
+                )
+            ]
             for text, action in buttons
         ]
     )
@@ -268,6 +283,7 @@ def build_drink_threshold_keyboard(
 def build_report_keyboard(
     post: str | None,
     unit_uuid: str | None,
+    webapp_urls_by_action: dict[str, str] | None = None,
     translate: Translator | None = None,
 ) -> InlineKeyboardMarkup | None:
     """Возвращает inline-клавиатуру для отчёта из RabbitMQ."""
@@ -284,6 +300,7 @@ def build_report_keyboard(
             post=post,
             unit_uuid=unit_uuid,
             buttons=COURIERS_REPORT_BUTTONS,
+            webapp_urls_by_action=webapp_urls_by_action,
             translate=translate,
         )
 
@@ -292,6 +309,7 @@ def build_report_keyboard(
             post=post,
             unit_uuid=unit_uuid,
             buttons=STATIONARY_REPORT_BUTTONS,
+            webapp_urls_by_action=webapp_urls_by_action,
             translate=translate,
         )
 

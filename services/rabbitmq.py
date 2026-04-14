@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import aio_pika
 from aiogram import Bot
@@ -11,8 +12,17 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.report_actions import build_report_keyboard
+from config import Config
+from database.requests.orders import get_order_account_id_for_unit
 from database.requests.settings import get_chat_language, get_default_chat_language
 from services.i18n import get_translator
+from services.webapp_links import ReportLinkParams, build_report_url, new_request_id
+
+
+WEBAPP_ACTIONS_BY_POST = {
+    "couriers": ("waiting", "later", "certificates", "sectors", "longers"),
+    "stationary": ("later_rest", "assembly_rest", "drink_rest"),
+}
 
 
 @dataclass(slots=True)
@@ -53,11 +63,65 @@ async def _resolve_chat_translator(
     return get_translator(language=language or "ru")
 
 
+async def _build_webapp_urls_by_action(
+    payload: RabbitPayload,
+    *,
+    session_maker: async_sessionmaker[AsyncSession] | None,
+    config: Config | None,
+) -> dict[str, str]:
+    """Готовит Direct Link URLs, чтобы кнопки сразу открывали Telegram Mini App."""
+    actions = WEBAPP_ACTIONS_BY_POST.get(payload.post or "")
+    if not actions or not payload.unit_uuid or session_maker is None or config is None:
+        return {}
+
+    if not config.webapp.report_url or not config.webapp.signing_secret:
+        return {}
+
+    async with session_maker() as session:
+        account_id = await get_order_account_id_for_unit(
+            session,
+            chat_id=payload.chat_id,
+            post=payload.post or "",
+            unit_uuid=payload.unit_uuid,
+            topic_id=payload.topic_id,
+        )
+
+    if account_id is None:
+        logger.bind(
+            chat_id=payload.chat_id,
+            topic_id=payload.topic_id,
+            post=payload.post,
+            unit_uuid=payload.unit_uuid,
+        ).warning("WebApp links skipped: account_id was not found for report payload")
+        return {}
+
+    message_date = datetime.now(timezone.utc).isoformat()
+    urls: dict[str, str] = {}
+    for action in actions:
+        url = build_report_url(
+            base_url=config.webapp.report_url,
+            direct_link_url=config.webapp.direct_link_url,
+            signing_secret=config.webapp.signing_secret,
+            ttl_seconds=config.webapp.link_ttl_seconds,
+            params=ReportLinkParams(
+                request_id=new_request_id(),
+                report_type=action,
+                unit_uuid=payload.unit_uuid,
+                account_id=int(account_id),
+                message_date=message_date,
+            ),
+        )
+        if url:
+            urls[action] = url
+    return urls
+
+
 async def rabbit_listener(
     bot: Bot,
     rabbit_url: str,
     queue_name: str,
     session_maker: async_sessionmaker[AsyncSession] | None = None,
+    config: Config | None = None,
 ):
     """Слушает очередь RabbitMQ и пересылает сообщения в Telegram."""
     connection = None
@@ -74,8 +138,18 @@ async def rabbit_listener(
                 # {"chat_id": ..., "text": ..., "topic_id": ..., "post": ..., "unit_uuid": ...}
                 payload = RabbitPayload.from_bytes(message.body)
                 translate = await _resolve_chat_translator(session_maker, payload.chat_id)
+                webapp_urls_by_action = await _build_webapp_urls_by_action(
+                    payload,
+                    session_maker=session_maker,
+                    config=config,
+                )
                 # Клавиатура подмешивается на стороне бота, чтобы payload из очереди оставался простым.
-                keyboard = build_report_keyboard(payload.post, payload.unit_uuid, translate=translate)
+                keyboard = build_report_keyboard(
+                    payload.post,
+                    payload.unit_uuid,
+                    webapp_urls_by_action=webapp_urls_by_action,
+                    translate=translate,
+                )
 
                 if payload.post and not payload.unit_uuid:
                     logger.bind(

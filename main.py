@@ -65,6 +65,7 @@ async def main() -> None:
             rabbit_url=cfg.rabbit.url,
             queue_name=cfg.rabbit.queue,
             session_maker=session_maker,
+            config=cfg,
         ),
         name="rabbit_listener",
     )
