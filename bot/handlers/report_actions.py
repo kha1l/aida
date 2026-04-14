@@ -367,19 +367,6 @@ async def _show_threshold_keyboard(
         await _safe_callback_answer(callback, tr(translate, "Unable to determine message"), show_alert=True)
         return
 
-    if config and config.webapp.direct_link_url:
-        url = await _build_report_webapp_url_for_callback(
-            callback,
-            callback_data,
-            report_type=callback_data.action,
-            state=state,
-            config=config,
-            translate=translate,
-        )
-        if url:
-            await _safe_callback_answer(callback, url=url)
-        return
-
     use_webapp_flow = bool(config and config.webapp.direct_link_url) or _supports_webapp_buttons(callback)
     if not use_webapp_flow:
         threshold_config = CALLBACK_THRESHOLD_CONFIGS[callback_data.action]
@@ -498,10 +485,6 @@ async def _show_report_webapp_button(
         return
 
     try:
-        if config and config.webapp.direct_link_url:
-            await _safe_callback_answer(callback, url=url)
-            return
-
         use_webapp = bool(
             config
             and not config.webapp.direct_link_url
