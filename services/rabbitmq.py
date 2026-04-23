@@ -151,7 +151,7 @@ async def rabbit_listener(
                     translate=translate,
                 )
 
-                if payload.post and not payload.unit_uuid:
+                if payload.post in WEBAPP_ACTIONS_BY_POST and not payload.unit_uuid:
                     logger.bind(
                         chat_id=payload.chat_id,
                         topic_id=payload.topic_id,

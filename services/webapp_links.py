@@ -27,7 +27,7 @@ def build_report_url(
     direct_link_url: str | None = None,
     signing_secret: str | None,
     params: ReportLinkParams,
-    ttl_seconds: int = 3600,
+    ttl_seconds: int = 604800,
 ) -> str | None:
     """Возвращает signed URL для открытия web-отчета."""
     if not base_url or not signing_secret:
