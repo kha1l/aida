@@ -8,12 +8,18 @@ from datetime import datetime, timezone
 
 import aio_pika
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramMigrateToChat
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bot.keyboards.report_actions import build_report_keyboard
 from config import Config
-from database.requests.orders import get_order_account_id_for_unit
+from database.requests.orders import (
+    delete_orders_for_chat,
+    get_order_account_id_for_unit,
+    migrate_orders_chat,
+)
 from database.requests.settings import get_chat_language, get_default_chat_language
 from services.i18n import get_translator
 from services.webapp_links import ReportLinkParams, build_report_url, new_request_id
@@ -116,6 +122,63 @@ async def _build_webapp_urls_by_action(
     return urls
 
 
+def _is_unavailable_telegram_chat_error(exc: TelegramBadRequest | TelegramForbiddenError) -> bool:
+    """Проверяет, что delivery error означает постоянную недоступность чата."""
+    text = str(exc).lower()
+    expected_fragments = (
+        "bot was blocked by the user",
+        "user is deactivated",
+        "bot was kicked",
+        "bot can't initiate conversation",
+        "chat not found",
+    )
+    return any(fragment in text for fragment in expected_fragments)
+
+
+async def _delete_delivery_subscriptions(
+    session_maker: async_sessionmaker[AsyncSession] | None,
+    *,
+    payload: RabbitPayload,
+) -> int:
+    if session_maker is None:
+        return 0
+    try:
+        async with session_maker() as session:
+            return await delete_orders_for_chat(session, payload.chat_id)
+    except SQLAlchemyError as exc:
+        logger.bind(
+            chat_id=payload.chat_id,
+            topic_id=payload.topic_id,
+            post=payload.post,
+            unit_uuid=payload.unit_uuid,
+            error=str(exc),
+        ).warning("Delivery cleanup skipped: failed to delete subscriptions")
+        return 0
+
+
+async def _migrate_delivery_subscriptions(
+    session_maker: async_sessionmaker[AsyncSession] | None,
+    *,
+    payload: RabbitPayload,
+    new_chat_id: int,
+) -> tuple[int, int]:
+    if session_maker is None:
+        return 0, 0
+    try:
+        async with session_maker() as session:
+            return await migrate_orders_chat(session, payload.chat_id, new_chat_id)
+    except SQLAlchemyError as exc:
+        logger.bind(
+            chat_id=payload.chat_id,
+            new_chat_id=new_chat_id,
+            topic_id=payload.topic_id,
+            post=payload.post,
+            unit_uuid=payload.unit_uuid,
+            error=str(exc),
+        ).warning("Delivery cleanup skipped: failed to migrate subscriptions")
+        return 0, 0
+
+
 async def rabbit_listener(
     bot: Bot,
     rabbit_url: str,
@@ -176,6 +239,47 @@ async def rabbit_listener(
                     "Message sent successfully",
                     text=payload.text[:200]
                 )
+
+            except TelegramMigrateToChat as exc:
+                migrated, merged = await _migrate_delivery_subscriptions(
+                    session_maker,
+                    payload=payload,
+                    new_chat_id=exc.migrate_to_chat_id,
+                )
+                logger.bind(
+                    chat_id=payload.chat_id if payload else None,
+                    new_chat_id=exc.migrate_to_chat_id,
+                    topic_id=payload.topic_id if payload else None,
+                    queue=queue_name,
+                    post=payload.post if payload else None,
+                    unit_uuid=payload.unit_uuid if payload else None,
+                    migrated=migrated,
+                    merged=merged,
+                ).info("Telegram chat migrated; subscriptions updated")
+
+            except (TelegramForbiddenError, TelegramBadRequest) as exc:
+                if payload is not None and _is_unavailable_telegram_chat_error(exc):
+                    deleted = await _delete_delivery_subscriptions(
+                        session_maker,
+                        payload=payload,
+                    )
+                    logger.bind(
+                        chat_id=payload.chat_id,
+                        topic_id=payload.topic_id,
+                        queue=queue_name,
+                        post=payload.post,
+                        unit_uuid=payload.unit_uuid,
+                        deleted=deleted,
+                        reason=exc.__class__.__name__,
+                    ).info("Telegram chat unavailable; subscriptions removed")
+                else:
+                    logger.bind(
+                        chat_id=payload.chat_id if payload else None,
+                        topic_id=payload.topic_id if payload else None,
+                        queue=queue_name,
+                        post=payload.post if payload else None,
+                        unit_uuid=payload.unit_uuid if payload else None,
+                    ).exception("Failed to send message")
 
             except Exception:
                 logger.bind(

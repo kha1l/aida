@@ -4,8 +4,23 @@ from typing import Iterable, List
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import Orders
+from database.models import Orders, Settings
 from loguru import logger
+
+
+def _optional_eq(column, value):
+    return column.is_(None) if value is None else column == value
+
+
+def _merge_uuids(left: list[str] | None, right: list[str] | None) -> list[str]:
+    """Объединяет uuid без дублей, сохраняя исходный порядок."""
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in [*(left or []), *(right or [])]:
+        if value not in seen:
+            seen.add(value)
+            result.append(value)
+    return result
 
 
 async def get_orders_by_post(
@@ -109,3 +124,64 @@ async def delete_order(
         account_id=account_id,
         topic_id=topic_id,
     )
+
+
+async def delete_orders_for_chat(session: AsyncSession, chat_id: int) -> int:
+    """Удаляет все подписки недоступного чата, чтобы не получать повторные delivery errors."""
+    result = await session.execute(delete(Orders).where(Orders.chat_id == chat_id))
+    await session.commit()
+    deleted = result.rowcount or 0
+    logger.info("orders delete for unavailable chat", chat_id=chat_id, deleted=deleted)
+    return deleted
+
+
+async def migrate_orders_chat(session: AsyncSession, old_chat_id: int, new_chat_id: int) -> tuple[int, int]:
+    """Переносит подписки Telegram-чата после миграции группы в supergroup."""
+    rows = (
+        await session.execute(
+            select(Orders)
+            .where(Orders.chat_id == old_chat_id)
+            .order_by(Orders.id)
+        )
+    ).scalars().all()
+
+    migrated = 0
+    merged = 0
+    for order in rows:
+        target = (
+            await session.execute(
+                select(Orders)
+                .where(
+                    Orders.chat_id == new_chat_id,
+                    Orders.post == order.post,
+                    _optional_eq(Orders.account_id, order.account_id),
+                    _optional_eq(Orders.topic_id, order.topic_id),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if target is not None:
+            target.uuids = _merge_uuids(target.uuids, order.uuids)
+            if target.params is None and order.params is not None:
+                target.params = order.params
+            await session.delete(order)
+            merged += 1
+        else:
+            order.chat_id = new_chat_id
+            migrated += 1
+
+    await session.execute(
+        update(Settings)
+        .where(Settings.chat_id == old_chat_id)
+        .values(chat_id=new_chat_id)
+    )
+    await session.commit()
+    logger.info(
+        "orders migrate chat",
+        old_chat_id=old_chat_id,
+        new_chat_id=new_chat_id,
+        migrated=migrated,
+        merged=merged,
+    )
+    return migrated, merged

@@ -134,6 +134,7 @@ dagster dev -m defs
 - Для `certificates`, `later`, `waiting`, `sectors`, `longers`, `later_rest`, `assembly_rest`, `drink_rest` после отправки отчета доступна кнопка `Скрыть отчет`.
 - Для payload без `unit_uuid` action-клавиатура не достраивается, но само сообщение все равно будет отправлено.
 - Подписки в `aida.orders` создаются и обновляются из меню бота через `database/requests/orders.py`.
+- RabbitMQ delivery обрабатывает ожидаемые Telegram-состояния без traceback: миграция группы обновляет `chat_id`, недоступный чат удаляет подписки из `aida.orders`.
 
 ## Локализация
 
