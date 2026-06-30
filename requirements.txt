@@ -12,6 +12,7 @@ asyncpg==0.31.0
 attrs==25.4.0
 cachetools==5.5.2
 certifi==2026.1.4
+cryptography==46.0.3
 environs==14.5.0
 frozenlist==1.8.0
 greenlet==3.3.1
