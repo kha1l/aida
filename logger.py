@@ -1,37 +1,26 @@
-import sys
 from loguru import logger
+from security_logging import loguru_json_sink, redact_record
 
 
 def setup_logging(
     service_name: str = "aida",
     log_level: str = "INFO",
 ):
-    """Настраивает вывод логов в stdout и файл сервиса."""
+    """Настраивает структурированный вывод логов в stdout."""
 
     logger.remove()
 
     def filter_logs(record):
         """Пропускает только записи текущего сервиса."""
-        return record["extra"].get("service") == "aida"
+        return record["extra"].get("service") == service_name
 
     logger.add(
-        sys.stdout,
-        serialize=True,
+        loguru_json_sink,
         level=log_level,
         enqueue=True,
-        backtrace=True,
+        backtrace=False,
+        diagnose=False,
         filter=filter_logs
     )
 
-    logger.add(
-        f"logs/{service_name}.log",
-        serialize=True,
-        rotation="10 MB",
-        retention="14 days",
-        compression="zip",
-        enqueue=True,
-        backtrace=True,
-        filter=filter_logs,
-    )
-
-    logger.configure(extra={"service": service_name})
+    logger.configure(extra={"service": service_name}, patcher=redact_record)

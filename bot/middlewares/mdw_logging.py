@@ -3,6 +3,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import Update
 from loguru import logger
 from aiogram_dialog.api.exceptions import OutdatedIntent, UnknownIntent
+from security_logging import emit_security_event, pseudonymize
 
 
 def _is_start_message(update: Update) -> bool:
@@ -21,7 +22,6 @@ class LoggingMiddleware(BaseMiddleware):
         data: Dict[str, Any],
     ) -> Any:
         """Оборачивает обработку update логированием контекста."""
-        # Логируем тип апдейта и контекст (чат, пользователь, сообщение)
         log = logger
 
         try:
@@ -30,13 +30,24 @@ class LoggingMiddleware(BaseMiddleware):
                 if _is_start_message(event):
                     chat_id = event.message.chat.id
                     user_id = event.message.from_user.id
+                    emit_security_event(
+                        "auth_succeeded",
+                        service="aida",
+                        source="telegram",
+                        actor=user_id,
+                        object_name="polling_update",
+                        result="success",
+                        reason_code="telegram_update_verified",
+                        request_id=str(event.update_id),
+                        trace_id=str(event.update_id),
+                    )
                     log = log.bind(
                         update_type="message",
-                        chat_id=chat_id,
-                        user_id=user_id,
+                        chat_hash=pseudonymize(chat_id),
+                        user_hash=pseudonymize(user_id),
                         message_id=event.message.message_id,
                     )
-                    log.info("message", text=event.message.text)
+                    log.info("message received")
 
             elif event.callback_query:
                 chat_id = (
@@ -48,9 +59,8 @@ class LoggingMiddleware(BaseMiddleware):
 
                 log = log.bind(
                     update_type="callback_query",
-                    chat_id=chat_id,
-                    user_id=user_id,
-                    callback_data=event.callback_query.data,
+                    chat_hash=pseudonymize(chat_id),
+                    user_hash=pseudonymize(user_id),
                 )
                 # Skip logging callbacks to reduce noise
 
