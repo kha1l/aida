@@ -2,11 +2,14 @@ import os
 import json
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from security_logging import (
     SECURITY_EVENT_TYPES,
+    SERVICE_NAME,
     build_application_log,
     build_security_event,
     pseudonymize,
@@ -36,6 +39,8 @@ class SecurityLoggingTests(unittest.TestCase):
                         trace_id="trace-1",
                     )
                     self.assertEqual(event["event_type"], event_type)
+                    self.assertEqual(event["service"], "test-service")
+                    self.assertEqual(event["record"]["message"], event_type)
                     self.assertNotIn("test@example.invalid", json.dumps(event))
 
     def test_pseudonym_is_hmac_and_versioned(self) -> None:
@@ -49,6 +54,10 @@ class SecurityLoggingTests(unittest.TestCase):
         ):
             value = pseudonymize("123456789")
         self.assertRegex(value or "", r"^test-v1:[0-9a-f]{64}$")
+
+    def test_pseudonym_is_omitted_without_key(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(pseudonymize("123456789"))
 
     def test_redaction_removes_sensitive_synthetic_values(self) -> None:
         with patch.dict(
@@ -64,6 +73,54 @@ class SecurityLoggingTests(unittest.TestCase):
         self.assertNotIn("test@example.invalid", result)
         self.assertNotIn("999 123-45-67", result)
         self.assertNotIn("123456789", result)
+
+    def test_redaction_removes_quoted_credentials(self) -> None:
+        samples = (
+            (
+                '{"access_token":"synthetic-json-token"}',
+                '{"access_token":"[REDACTED]"}',
+            ),
+            (
+                "{'Authorization': 'Bearer synthetic-dict-token'}",
+                "{'Authorization': '[REDACTED]'}",
+            ),
+            (
+                '{"password":"synthetic value with spaces"}',
+                '{"password":"[REDACTED]"}',
+            ),
+            (
+                "token = 'synthetic value with spaces'",
+                "token=[REDACTED]",
+            ),
+        )
+        for sample, expected in samples:
+            with self.subTest(sample=sample):
+                result = redact_text(sample)
+                self.assertEqual(result, expected)
+                self.assertEqual(redact_text(result), expected)
+
+    def test_redaction_does_not_corrupt_pseudonyms(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"SECURITY_PSEUDONYM_KEY": "synthetic-test-key"},
+            clear=False,
+        ):
+            user_hash = pseudonymize("123456789")
+            self.assertIsNotNone(user_hash)
+            self.assertEqual(redact_text(user_hash), user_hash)
+            event = build_application_log(
+                {
+                    "time": datetime.now(timezone.utc),
+                    "level": SimpleNamespace(name="INFO"),
+                    "message": "synthetic",
+                    "extra": {
+                        "service": SERVICE_NAME,
+                        "user_hash": user_hash,
+                    },
+                    "exception": None,
+                }
+            )
+        self.assertEqual(event["user_hash"], user_hash)
 
     def test_record_extra_uses_allowlist_and_hashes_identifiers(self) -> None:
         record = {
@@ -96,14 +153,60 @@ class SecurityLoggingTests(unittest.TestCase):
                     "callback_data": "must-not-survive",
                 },
                 "exception": None,
-                "file": "must-not-survive.py",
+                "module": "synthetic_module",
+                "function": "synthetic_function",
+                "line": 42,
+                "file": SimpleNamespace(name="synthetic.py"),
             }
         )
         self.assertEqual(event["stream"], "application")
         self.assertEqual(event["service"], "test")
         self.assertEqual(event["request_id"], "request-1")
+        self.assertEqual(event["record"]["level"]["name"], "INFO")
+        self.assertEqual(event["record"]["message"], "synthetic")
+        self.assertEqual(event["record"]["module"], "synthetic_module")
+        self.assertEqual(event["record"]["function"], "synthetic_function")
+        self.assertEqual(event["record"]["line"], 42)
+        self.assertEqual(event["record"]["file"]["name"], "synthetic.py")
         self.assertNotIn("callback_data", event)
         self.assertNotIn("file", event)
+
+
+class EncryptedFieldsConfigTests(unittest.TestCase):
+    def test_secret_key_is_loaded_from_dotenv_without_mutating_os_environ(self) -> None:
+        from database.encrypted_fields import _get_secret_key
+
+        with TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text(
+                "SECRET_KEY_AUTH=synthetic-dotenv-key\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(
+                    _get_secret_key(str(env_path)),
+                    "synthetic-dotenv-key",
+                )
+                self.assertNotIn("SECRET_KEY_AUTH", os.environ)
+
+    def test_exported_secret_key_takes_precedence_over_dotenv(self) -> None:
+        from database.encrypted_fields import _get_secret_key
+
+        with TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text(
+                "SECRET_KEY_AUTH=synthetic-dotenv-key\n",
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {"SECRET_KEY_AUTH": "synthetic-exported-key"},
+                clear=True,
+            ):
+                self.assertEqual(
+                    _get_secret_key(str(env_path)),
+                    "synthetic-exported-key",
+                )
 
 
 if __name__ == "__main__":

@@ -13,6 +13,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # aiogram-dialog 2.x currently requires cachetools < 6.
+      - dependency-name: "cachetools"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
       prefix: "deps"
   - package-ecosystem: "docker"
