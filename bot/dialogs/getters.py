@@ -3,18 +3,14 @@
 import html
 from typing import Any
 
-import logging
-
 from aiogram_dialog import DialogManager
+from loguru import logger
 
 from bot.dialogs.data import STOCK_ITEMS, POST
 from bot.dialogs.texts import MenuTexts
 from database.requests.orders import get_orders_by_post
 from bot.dialogs.helpers import DialogContext
 from services.i18n import get_translator
-
-
-logger = logging.getLogger(__name__)
 
 
 OPERATION_TITLE_MAP = {
@@ -48,7 +44,11 @@ class MenuGetters:
         try:
             return dialog_manager.current_context()
         except Exception as exc:  # noqa: BLE001
-            logger.debug("Не удалось получить current_context для %s", action, exc_info=exc)
+            logger.debug(
+                "Не удалось получить current_context",
+                object=f"dialog:{action}",
+                error_type=type(exc).__name__,
+            )
             return None
 
     @staticmethod
@@ -178,7 +178,10 @@ class MenuGetters:
                     subs_by_post = dialog_manager.dialog_data.setdefault("subs_by_post", {})
                     subs_by_post[post] = selected
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("Не удалось предзагрузить выбранные заведения", exc_info=exc)
+                    logger.debug(
+                        "Не удалось предзагрузить выбранные заведения",
+                        error_type=type(exc).__name__,
+                    )
         _ = MenuGetters._translator(dialog_manager)
         texts = MenuGetters._texts(dialog_manager)
         dialog_type = str(dialog_manager.dialog_data.get("type") or "")
@@ -227,7 +230,10 @@ class MenuGetters:
                                 selected.extend([p for p in order.params.split(",") if p in valid_ids])
                     ctx_state.widget_data["stocks"] = selected
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("Не удалось предзагрузить категории stock", exc_info=exc)
+                    logger.debug(
+                        "Не удалось предзагрузить категории stock",
+                        error_type=type(exc).__name__,
+                    )
         return {
             "stocks": [
                 {**item, "label": _(item["label"])}

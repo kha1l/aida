@@ -10,6 +10,7 @@ from database.requests.settings import (
     get_user_settings,
 )
 from loguru import logger
+from security_logging import pseudonymize
 
 
 class I18nMiddleware(BaseMiddleware):
@@ -55,9 +56,9 @@ class I18nMiddleware(BaseMiddleware):
         except SQLAlchemyError as exc:
             logger.warning(
                 "Не удалось загрузить язык чата из БД, используем ru по умолчанию",
-                chat_id=chat_id,
-                telegram_id=tg_user.id,
-                error=str(exc),
+                chat_hash=pseudonymize(chat_id),
+                user_hash=pseudonymize(tg_user.id),
+                error_type=type(exc).__name__,
             )
             language = "ru"
             settings = None

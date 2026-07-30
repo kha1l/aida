@@ -11,6 +11,7 @@ from aiogram.client.session.middlewares.base import BaseRequestMiddleware, NextR
 from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
 from aiogram.methods.base import TelegramMethod, TelegramType
 from loguru import logger
+from security_logging import pseudonymize
 
 
 class TelegramRetryMiddleware(BaseRequestMiddleware):
@@ -58,7 +59,7 @@ class TelegramRetryMiddleware(BaseRequestMiddleware):
                     logger.info(
                         "Telegram request succeeded after retry",
                         method=method.__class__.__name__,
-                        scope=scope,
+                        source_hash=pseudonymize(scope),
                         attempt=attempt,
                     )
                 return result
@@ -67,7 +68,7 @@ class TelegramRetryMiddleware(BaseRequestMiddleware):
                     logger.error(
                         "Telegram flood control: retries exhausted",
                         method=method.__class__.__name__,
-                        scope=scope,
+                        source_hash=pseudonymize(scope),
                         retry_after=float(exc.retry_after),
                         attempt=attempt,
                         max_retries=self.max_retries,
@@ -77,7 +78,7 @@ class TelegramRetryMiddleware(BaseRequestMiddleware):
                 logger.warning(
                     "Telegram flood control: retrying request",
                     method=method.__class__.__name__,
-                    scope=scope,
+                    source_hash=pseudonymize(scope),
                     retry_after=delay,
                     attempt=attempt,
                     max_retries=self.max_retries,
@@ -88,7 +89,7 @@ class TelegramRetryMiddleware(BaseRequestMiddleware):
                     logger.error(
                         "Telegram network error: retries exhausted",
                         method=method.__class__.__name__,
-                        scope=scope,
+                        source_hash=pseudonymize(scope),
                         attempt=attempt,
                         max_retries=self.max_retries,
                         error=str(exc),
@@ -98,7 +99,7 @@ class TelegramRetryMiddleware(BaseRequestMiddleware):
                 logger.warning(
                     "Telegram network error: retrying request",
                     method=method.__class__.__name__,
-                    scope=scope,
+                    source_hash=pseudonymize(scope),
                     retry_in=delay,
                     attempt=attempt,
                     max_retries=self.max_retries,
@@ -121,7 +122,7 @@ class TelegramRetryMiddleware(BaseRequestMiddleware):
                 logger.debug(
                     "Telegram request throttled",
                     method=method_name,
-                    scope=scope,
+                    source_hash=pseudonymize(scope),
                     wait_seconds=round(wait_seconds, 3),
                     min_interval=min_interval,
                 )

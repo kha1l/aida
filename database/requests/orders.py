@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import Orders, Settings
 from loguru import logger
+from security_logging import pseudonymize
 
 
 def _optional_eq(column, value):
@@ -96,12 +97,8 @@ async def upsert_order(
     await session.commit()
     logger.info(
         "orders upsert",
-        post=post,
-        chat_id=chat_id,
-        account_id=account_id,
-        topic_id=topic_id,
-        uuids=uuids,
-        params=params,
+        chat_hash=pseudonymize(chat_id),
+        object=f"subscription:{post}",
     )
 
 
@@ -119,10 +116,8 @@ async def delete_order(
     await session.commit()
     logger.info(
         "orders delete",
-        post=post,
-        chat_id=chat_id,
-        account_id=account_id,
-        topic_id=topic_id,
+        chat_hash=pseudonymize(chat_id),
+        object=f"subscription:{post}",
     )
 
 
@@ -131,7 +126,11 @@ async def delete_orders_for_chat(session: AsyncSession, chat_id: int) -> int:
     result = await session.execute(delete(Orders).where(Orders.chat_id == chat_id))
     await session.commit()
     deleted = result.rowcount or 0
-    logger.info("orders delete for unavailable chat", chat_id=chat_id, deleted=deleted)
+    logger.info(
+        "orders delete for unavailable chat",
+        chat_hash=pseudonymize(chat_id),
+        status=deleted,
+    )
     return deleted
 
 
@@ -179,9 +178,8 @@ async def migrate_orders_chat(session: AsyncSession, old_chat_id: int, new_chat_
     await session.commit()
     logger.info(
         "orders migrate chat",
-        old_chat_id=old_chat_id,
-        new_chat_id=new_chat_id,
-        migrated=migrated,
-        merged=merged,
+        source_hash=pseudonymize(old_chat_id),
+        chat_hash=pseudonymize(new_chat_id),
+        status=migrated + merged,
     )
     return migrated, merged

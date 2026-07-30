@@ -21,6 +21,7 @@ from database.requests.orders import (
     migrate_orders_chat,
 )
 from database.requests.settings import get_chat_language, get_default_chat_language
+from security_logging import pseudonymize
 from services.i18n import get_translator
 from services.webapp_links import ReportLinkParams, build_report_url, new_request_id
 
@@ -216,10 +217,8 @@ async def rabbit_listener(
 
                 if payload.post in WEBAPP_ACTIONS_BY_POST and not payload.unit_uuid:
                     logger.bind(
-                        chat_id=payload.chat_id,
-                        topic_id=payload.topic_id,
-                        queue=queue_name,
-                        post=payload.post,
+                        chat_hash=pseudonymize(payload.chat_id),
+                        object=f"report:{payload.post}",
                     ).warning("Keyboard skipped: unit_uuid is missing in payload")
 
                 await bot.send_message(
@@ -230,15 +229,9 @@ async def rabbit_listener(
                 )
 
                 logger.bind(
-                    chat_id=payload.chat_id,
-                    topic_id=payload.topic_id,
-                    queue=queue_name,
-                    post=payload.post,
-                    unit_uuid=payload.unit_uuid,
-                ).info(
-                    "Message sent successfully",
-                    text=payload.text[:200]
-                )
+                    chat_hash=pseudonymize(payload.chat_id),
+                    object=f"report:{payload.post}",
+                ).info("Message sent successfully")
 
             except TelegramMigrateToChat as exc:
                 migrated, merged = await _migrate_delivery_subscriptions(
@@ -247,14 +240,10 @@ async def rabbit_listener(
                     new_chat_id=exc.migrate_to_chat_id,
                 )
                 logger.bind(
-                    chat_id=payload.chat_id if payload else None,
-                    new_chat_id=exc.migrate_to_chat_id,
-                    topic_id=payload.topic_id if payload else None,
-                    queue=queue_name,
-                    post=payload.post if payload else None,
-                    unit_uuid=payload.unit_uuid if payload else None,
-                    migrated=migrated,
-                    merged=merged,
+                    source_hash=pseudonymize(payload.chat_id if payload else None),
+                    chat_hash=pseudonymize(exc.migrate_to_chat_id),
+                    object=f"report:{payload.post}" if payload else "report:unknown",
+                    status=migrated + merged,
                 ).info("Telegram chat migrated; subscriptions updated")
 
             except (TelegramForbiddenError, TelegramBadRequest) as exc:
@@ -264,30 +253,23 @@ async def rabbit_listener(
                         payload=payload,
                     )
                     logger.bind(
-                        chat_id=payload.chat_id,
-                        topic_id=payload.topic_id,
-                        queue=queue_name,
-                        post=payload.post,
-                        unit_uuid=payload.unit_uuid,
-                        deleted=deleted,
-                        reason=exc.__class__.__name__,
+                        chat_hash=pseudonymize(payload.chat_id),
+                        object=f"report:{payload.post}",
+                        status=deleted,
+                        error_type=type(exc).__name__,
                     ).info("Telegram chat unavailable; subscriptions removed")
                 else:
                     logger.bind(
-                        chat_id=payload.chat_id if payload else None,
-                        topic_id=payload.topic_id if payload else None,
-                        queue=queue_name,
-                        post=payload.post if payload else None,
-                        unit_uuid=payload.unit_uuid if payload else None,
+                        chat_hash=pseudonymize(payload.chat_id if payload else None),
+                        object=f"report:{payload.post}" if payload else "report:unknown",
+                        error_type=type(exc).__name__,
                     ).exception("Failed to send message")
 
-            except Exception:
+            except Exception as exc:
                 logger.bind(
-                    chat_id=payload.chat_id if payload else None,
-                    topic_id=payload.topic_id if payload else None,
-                    queue=queue_name,
-                    post=payload.post if payload else None,
-                    unit_uuid=payload.unit_uuid if payload else None,
+                    chat_hash=pseudonymize(payload.chat_id if payload else None),
+                    object=f"report:{payload.post}" if payload else "report:unknown",
+                    error_type=type(exc).__name__,
                 ).exception("Failed to send message")
 
     try:

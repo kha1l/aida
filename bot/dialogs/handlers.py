@@ -1,12 +1,12 @@
 """Обработчики действий в меню подписок и отчетов."""
 import contextlib
-import logging
 from typing import Callable, Awaitable, cast
 
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 from aiogram_dialog import DialogManager, StartMode
 from aiogram_dialog.widgets.kbd import Button, Select, Multiselect
+from loguru import logger
 
 from bot.dialogs.data import POST, STOCK_ITEMS
 from bot.dialogs.helpers import DialogContext
@@ -18,9 +18,7 @@ from datetime import datetime
 from config import load_config
 from services.dagster import DagsterClient, DagsterLaunchError
 from services.i18n import get_translator, tr
-
-
-logger = logging.getLogger(__name__)
+from security_logging import pseudonymize
 
 
 def _is_expired_callback_error(exc: TelegramBadRequest) -> bool:
@@ -39,7 +37,10 @@ async def _safe_callback_answer(
         await callback.answer(text, show_alert=show_alert)
     except TelegramBadRequest as exc:
         if _is_expired_callback_error(exc):
-            logger.info("Skip expired callback answer: %s", exc)
+            logger.info(
+                "Skip expired callback answer",
+                error_type=type(exc).__name__,
+            )
             return
         raise
 
@@ -101,7 +102,10 @@ class MenuHandlers:
         try:
             manager.current_context().widget_data.pop(key, None)
         except Exception as exc:  # noqa: BLE001
-            logger.debug("Не удалось сбросить widget_data[%s]", key, exc_info=exc)
+            logger.debug(
+                "Не удалось сбросить widget_data",
+                error_type=type(exc).__name__,
+            )
 
     @staticmethod
     def _set_widget_state(manager: DialogManager, key: str, value) -> None:
@@ -109,7 +113,10 @@ class MenuHandlers:
         try:
             manager.current_context().widget_data[key] = value
         except Exception as exc:  # noqa: BLE001
-            logger.debug("Не удалось записать widget_data[%s]", key, exc_info=exc)
+            logger.debug(
+                "Не удалось записать widget_data",
+                error_type=type(exc).__name__,
+            )
 
     @staticmethod
     def _reset_units_selection(manager: DialogManager) -> None:
@@ -191,7 +198,10 @@ class MenuHandlers:
             if callback.message:
                 await callback.message.delete()
         except Exception as exc:  # noqa: BLE001
-            logger.debug("Не удалось удалить сообщение меню при выходе", exc_info=exc)
+            logger.debug(
+                "Не удалось удалить сообщение меню при выходе",
+                error_type=type(exc).__name__,
+            )
         await manager.done()
         await callback.message.answer(_(MenuTexts.EXIT_MESSAGE))
 
@@ -430,16 +440,20 @@ class MenuHandlers:
                 tags=tags,
             )
         except DagsterLaunchError as exc:
-            logger.warning("Failed to launch operation job %s: %s", action, exc)
+            logger.warning(
+                "Failed to launch operation job",
+                object=f"operation:{action}",
+                error_type=type(exc).__name__,
+            )
             await _safe_callback_answer(callback, tr(_, config_entry["error_popup"]), show_alert=True)
             return
 
         logger.info(
-            "Operation job launched: action=%s run_id=%s chat_id=%s unit_count=%s",
-            action,
-            run.run_id,
-            message.chat.id,
-            len(selected_units),
+            "Operation job launched",
+            object=f"operation:{action}",
+            request_id=run.run_id,
+            chat_hash=pseudonymize(message.chat.id),
+            status=len(selected_units),
         )
         await _safe_callback_answer(callback, tr(_, config_entry["success_popup"]))
         await MenuHandlers._return_to_main_menu(callback, manager)

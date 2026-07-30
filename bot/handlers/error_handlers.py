@@ -14,6 +14,7 @@ from aiogram.exceptions import (
 from aiogram.types import ErrorEvent
 from aiogram_dialog.api.exceptions import OutdatedIntent, UnknownIntent
 from loguru import logger
+from security_logging import pseudonymize
 
 
 router = Router()  # Роутер для обработки ошибок
@@ -28,16 +29,21 @@ def _bind_event_log(event: ErrorEvent):
     if update.message:
         return log.bind(
             update_type="message",
-            chat_id=update.message.chat.id,
-            user_id=update.message.from_user.id if update.message.from_user else None,
+            chat_hash=pseudonymize(update.message.chat.id),
+            user_hash=pseudonymize(
+                update.message.from_user.id if update.message.from_user else None
+            ),
             message_id=update.message.message_id,
         )
     if update.callback_query:
         return log.bind(
             update_type="callback_query",
-            chat_id=update.callback_query.message.chat.id if update.callback_query.message else None,
-            user_id=update.callback_query.from_user.id if update.callback_query.from_user else None,
-            callback_data=update.callback_query.data,
+            chat_hash=pseudonymize(
+                update.callback_query.message.chat.id
+                if update.callback_query.message
+                else None
+            ),
+            user_hash=pseudonymize(update.callback_query.from_user.id),
         )
     return log.bind(update_type=update.event_type)
 
@@ -54,7 +60,7 @@ async def telegram_error_handler(event: ErrorEvent) -> bool:
         return True
 
     if isinstance(exc, TelegramNetworkError):
-        log.warning("Telegram network error", error=str(exc))
+        log.warning("Telegram network error", error_type=type(exc).__name__)
         return True
 
     if isinstance(
@@ -66,18 +72,18 @@ async def telegram_error_handler(event: ErrorEvent) -> bool:
             TelegramConflictError,
         ),
     ):
-        log.warning("Telegram API warning", error=str(exc), exc_type=type(exc).__name__)
+        log.warning("Telegram API warning", error_type=type(exc).__name__)
         return True
 
     if isinstance(exc, TelegramAPIError):
-        log.error("Telegram API error", error=str(exc), exc_type=type(exc).__name__)
+        log.error("Telegram API error", error_type=type(exc).__name__)
         return True
 
     # Пользователь нажал на старую inline-кнопку из уже обновленного dialog stack
     # или контекст диалога уже исчез из storage после рестарта/TTL.
     # Для aiogram_dialog это штатный UX-кейс, поэтому отвечаем мягко и не шумим traceback'ом.
     if isinstance(exc, (OutdatedIntent, UnknownIntent)):
-        log.warning("Stale dialog intent", error=str(exc), exc_type=type(exc).__name__)
+        log.warning("Stale dialog intent", error_type=type(exc).__name__)
         callback = event.update.callback_query if event.update else None
         if callback is not None:
             try:

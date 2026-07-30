@@ -7,6 +7,7 @@ from loguru import logger
 from aiogram.fsm.context import FSMContext
 from bot.keyboards.info import new_account
 from bot.dialogs.texts import MenuTexts
+from security_logging import pseudonymize
 from services.i18n import get_translator, tr
 
 
@@ -91,7 +92,7 @@ class UserDBMiddleware(BaseMiddleware):
         if not ctx:
             logger.warning(
                 "Пользователь не найден в базе данных",
-                telegram_id=tg_user.id,
+                user_hash=pseudonymize(tg_user.id),
             )
             await _send_authorization_required(event, _, user_name=tg_user.full_name)
             return None
@@ -99,8 +100,7 @@ class UserDBMiddleware(BaseMiddleware):
         # Кладём контекст в FSM, чтобы не ходить в БД каждый раз
         logger.success(
             "Пользователь успешно загружен из базы данных",
-            telegram_id=tg_user.id,
-            user_id=ctx.get("user_id"),
+            user_hash=pseudonymize(tg_user.id),
         )
         # Контекст нужен не только для следующих апдейтов из FSM,
         # но и прямо для текущего handler (`/start` и другие entry-point'ы).
