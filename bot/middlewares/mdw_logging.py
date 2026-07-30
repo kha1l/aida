@@ -3,7 +3,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import Update
 from loguru import logger
 from aiogram_dialog.api.exceptions import OutdatedIntent, UnknownIntent
-from security_logging import emit_security_event, pseudonymize
+from security_logging import create_correlation_id, emit_security_event, pseudonymize
 
 
 def _is_start_message(update: Update) -> bool:
@@ -22,7 +22,11 @@ class LoggingMiddleware(BaseMiddleware):
         data: Dict[str, Any],
     ) -> Any:
         """Оборачивает обработку update логированием контекста."""
-        log = logger
+        correlation_id = create_correlation_id(f"telegram-update:{event.update_id}")
+        log = logger.bind(
+            request_id=correlation_id,
+            trace_id=correlation_id,
+        )
 
         try:
             update_type = event.event_type
@@ -38,8 +42,8 @@ class LoggingMiddleware(BaseMiddleware):
                         object_name="polling_update",
                         result="success",
                         reason_code="telegram_update_verified",
-                        request_id=str(event.update_id),
-                        trace_id=str(event.update_id),
+                        request_id=correlation_id,
+                        trace_id=correlation_id,
                     )
                     log = log.bind(
                         update_type="message",
@@ -68,7 +72,11 @@ class LoggingMiddleware(BaseMiddleware):
                 log = log.bind(update_type=update_type)
                 log.info("update")
 
-            return await handler(event, data)
+            with logger.contextualize(
+                request_id=correlation_id,
+                trace_id=correlation_id,
+            ):
+                return await handler(event, data)
 
         except (OutdatedIntent, UnknownIntent):
             # Старые dialog intent'ы и потерянный context отдельно обрабатываются

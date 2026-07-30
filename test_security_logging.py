@@ -12,13 +12,30 @@ from security_logging import (
     SERVICE_NAME,
     build_application_log,
     build_security_event,
+    create_correlation_id,
     pseudonymize,
     redact_record,
     redact_text,
 )
 
+try:
+    from loguru import logger as loguru_logger
+
+    from bot.middlewares.mdw_logging import LoggingMiddleware
+except ModuleNotFoundError:
+    loguru_logger = None
+    LoggingMiddleware = None
+
 
 class SecurityLoggingTests(unittest.TestCase):
+    def test_correlation_id_is_stable_and_contains_no_source_identifier(self) -> None:
+        first = create_correlation_id("telegram-update:123456789")
+        second = create_correlation_id("telegram-update:123456789")
+
+        self.assertEqual(first, second)
+        self.assertRegex(first, r"^[0-9a-f]{32}$")
+        self.assertNotIn("123456789", first)
+
     def test_every_security_event_type_has_safe_schema(self) -> None:
         with patch.dict(
             os.environ,
@@ -207,6 +224,38 @@ class SecurityLoggingTests(unittest.TestCase):
         self.assertNotIn(raw_chat_id, serialized)
         self.assertNotIn(report_body, serialized)
         self.assertNotIn(callback_data, serialized)
+
+
+@unittest.skipIf(LoggingMiddleware is None, "bot runtime dependencies are not installed")
+class LoggingMiddlewareTests(unittest.IsolatedAsyncioTestCase):
+    async def test_correlation_context_reaches_nested_handler_logs(self) -> None:
+        records: list[dict] = []
+        sink_id = loguru_logger.add(
+            lambda message: records.append(dict(message.record)),
+            filter=lambda record: record["message"] == "nested handler log",
+        )
+
+        async def handler(event, data):
+            loguru_logger.info("nested handler log")
+            return "ok"
+
+        event = SimpleNamespace(
+            update_id=123456789,
+            event_type="synthetic",
+            message=None,
+            callback_query=None,
+        )
+        try:
+            result = await LoggingMiddleware()(handler, event, {})
+        finally:
+            loguru_logger.remove(sink_id)
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(len(records), 1)
+        extra = records[0]["extra"]
+        self.assertRegex(extra["request_id"], r"^[0-9a-f]{32}$")
+        self.assertEqual(extra["trace_id"], extra["request_id"])
+        self.assertNotIn(str(event.update_id), extra["request_id"])
 
 
 class EncryptedFieldsConfigTests(unittest.TestCase):
