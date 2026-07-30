@@ -3,11 +3,10 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery, Update
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from database.requests.users import get_user_context
-from loguru import logger
 from aiogram.fsm.context import FSMContext
 from bot.keyboards.info import new_account
 from bot.dialogs.texts import MenuTexts
-from security_logging import pseudonymize
+from security_logging import SERVICE_NAME, emit_security_event
 from services.i18n import get_translator, tr
 
 
@@ -90,18 +89,42 @@ class UserDBMiddleware(BaseMiddleware):
         # Если пользователя нет в БД — не пускаем дальше в /start и сразу
         # показываем понятное сообщение с кнопкой авторизации.
         if not ctx:
-            logger.warning(
-                "Пользователь не найден в базе данных",
-                user_hash=pseudonymize(tg_user.id),
+            is_auth_attempt = _is_start_message(event)
+            emit_security_event(
+                "auth_failed" if is_auth_attempt else "access_denied",
+                service=SERVICE_NAME,
+                source="telegram",
+                actor=tg_user.id,
+                object_name="bot_session",
+                result="failure" if is_auth_attempt else "denied",
+                reason_code=(
+                    "user_not_registered"
+                    if is_auth_attempt
+                    else "user_context_missing"
+                ),
+                request_id=data.get("request_id"),
+                trace_id=data.get("trace_id"),
             )
             await _send_authorization_required(event, _, user_name=tg_user.full_name)
             return None
 
-        # Кладём контекст в FSM, чтобы не ходить в БД каждый раз
-        logger.success(
-            "Пользователь успешно загружен из базы данных",
-            user_hash=pseudonymize(tg_user.id),
-        )
+        # Успешную проверку пишем только при создании новой bot-session через
+        # `/start`. Для callback-событий и уже закешированного FSM-контекста
+        # отдельный audit-log не нужен: это убирает дубли и сохраняет сигнал.
+        if _is_start_message(event):
+            emit_security_event(
+                "auth_succeeded",
+                service=SERVICE_NAME,
+                source="telegram",
+                actor=tg_user.id,
+                object_name="bot_session",
+                result="success",
+                reason_code="user_context_verified",
+                request_id=data.get("request_id"),
+                trace_id=data.get("trace_id"),
+            )
+
+        # Кладём контекст в FSM, чтобы не ходить в БД каждый раз.
         # Контекст нужен не только для следующих апдейтов из FSM,
         # но и прямо для текущего handler (`/start` и другие entry-point'ы).
         data["ctx"] = ctx

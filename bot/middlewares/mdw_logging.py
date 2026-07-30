@@ -3,7 +3,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import Update
 from loguru import logger
 from aiogram_dialog.api.exceptions import OutdatedIntent, UnknownIntent
-from security_logging import create_correlation_id, emit_security_event, pseudonymize
+from security_logging import create_correlation_id, pseudonymize
 
 
 def _is_start_message(update: Update) -> bool:
@@ -23,6 +23,11 @@ class LoggingMiddleware(BaseMiddleware):
     ) -> Any:
         """Оборачивает обработку update логированием контекста."""
         correlation_id = create_correlation_id(f"telegram-update:{event.update_id}")
+        # Передаём единый correlation ID следующим middleware и хендлерам.
+        # Это позволяет связать audit-событие с обычными техническими логами,
+        # не создавая отдельный идентификатор и лишнюю строку на каждом шаге.
+        data["request_id"] = correlation_id
+        data["trace_id"] = correlation_id
         log = logger.bind(
             request_id=correlation_id,
             trace_id=correlation_id,
@@ -34,24 +39,14 @@ class LoggingMiddleware(BaseMiddleware):
                 if _is_start_message(event):
                     chat_id = event.message.chat.id
                     user_id = event.message.from_user.id
-                    emit_security_event(
-                        "auth_succeeded",
-                        service="aida",
-                        source="telegram",
-                        actor=user_id,
-                        object_name="polling_update",
-                        result="success",
-                        reason_code="telegram_update_verified",
-                        request_id=correlation_id,
-                        trace_id=correlation_id,
-                    )
                     log = log.bind(
                         update_type="message",
                         chat_hash=pseudonymize(chat_id),
                         user_hash=pseudonymize(user_id),
                         message_id=event.message.message_id,
                     )
-                    log.info("message received")
+                    # Результат проверки `/start` попадёт в security_audit.
+                    # Отдельная application-строка здесь была бы дублем.
 
             elif event.callback_query:
                 chat_id = (
@@ -70,7 +65,8 @@ class LoggingMiddleware(BaseMiddleware):
 
             else:
                 log = log.bind(update_type=update_type)
-                log.info("update")
+                # Неизвестный успешный update не даёт отдельной строки:
+                # bound-контекст всё равно попадёт в лог, если обработка упадёт.
 
             with logger.contextualize(
                 request_id=correlation_id,
