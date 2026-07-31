@@ -14,6 +14,21 @@ from sqlalchemy.orm import selectinload
 from database.models import User, UserAccount, Account, Token, Subscribe
 
 
+def _deduplicate_units_by_uuid(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return one unit per UUID while preserving the first access path."""
+    unique_units = []
+    seen_uuids: set[str] = set()
+
+    for unit in units:
+        unit_uuid = unit["uuid"]
+        if unit_uuid in seen_uuids:
+            continue
+        seen_uuids.add(unit_uuid)
+        unique_units.append(unit)
+
+    return unique_units
+
+
 async def get_user_id(session: AsyncSession, tg_user: TelegramObject) -> int | None:
     """Возвращает внутренний user_id по Telegram user."""
     stmt = select(User.id).where(
@@ -76,5 +91,5 @@ async def get_user_context(session: AsyncSession, tg_user: TelegramObject) -> di
         "user_id": user.id,
         "accounts": accounts,
         "properties": properties,
-        "units": units,
+        "units": _deduplicate_units_by_uuid(units),
     }

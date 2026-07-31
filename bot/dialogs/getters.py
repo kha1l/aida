@@ -21,6 +21,21 @@ OPERATION_TITLE_MAP = {
 }
 
 
+def _deduplicate_unit_payloads(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one menu item per unit UUID, including for cached user contexts."""
+    unique_units = []
+    seen_uuids: set[str] = set()
+
+    for unit in units:
+        unit_uuid = unit["uuid"]
+        if unit_uuid in seen_uuids:
+            continue
+        seen_uuids.add(unit_uuid)
+        unique_units.append(unit)
+
+    return unique_units
+
+
 class MenuGetters:
     """Геттеры данных для окон меню (aiogram_dialog)."""
 
@@ -140,7 +155,9 @@ class MenuGetters:
     async def units_data(dialog_manager: DialogManager, **kwargs: Any) -> dict:
         """Готовит список заведений и выбранные подписки."""
         ctx = await DialogContext.load_ctx(dialog_manager)
-        units = [unit.model_dump() for unit in ctx.units]
+        units = _deduplicate_unit_payloads(
+            [unit.model_dump() for unit in ctx.units]
+        )
         dialog_manager.dialog_data["units_by_id"] = {
             unit["uuid"]: unit["name"] for unit in units
         }
