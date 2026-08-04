@@ -27,7 +27,7 @@ pamqp==4.0.1
 propcache==0.5.2
 pydantic==2.13.4
 python-dotenv==1.2.2
-redis==8.0.1
+redis==8.1.0
 SQLAlchemy==2.0.51
 typing-inspection==0.4.2
 typing_extensions==4.16.0
