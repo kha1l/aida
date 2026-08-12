@@ -13,7 +13,7 @@ attrs==26.1.0
 cachetools==5.5.2
 certifi==2026.7.22
 cryptography==50.0.0
-environs==15.0.1
+environs==15.1.0
 frozenlist==1.8.0
 greenlet==3.5.4
 idna==3.18
@@ -21,7 +21,7 @@ Jinja2==3.1.6
 loguru==0.7.3
 magic-filter==1.0.12
 MarkupSafe==3.0.3
-marshmallow==4.3.0
+marshmallow==4.3.1
 multidict==6.7.1
 pamqp==4.0.1
 propcache==0.5.2
